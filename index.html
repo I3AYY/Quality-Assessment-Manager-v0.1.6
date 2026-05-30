@@ -1,0 +1,1355 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quality Assessment Manager v0.1.6 AI Core</title>
+  
+  <!-- Google Fonts: Prompt สำหรับภาษาไทย และ Roboto Mono สำหรับตัวเลขทางสถิติห้องแล็บ -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&family=Roboto+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <!-- SweetAlert2 -->
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  
+  <!-- Chart.js สำหรับการแสดงผลกราฟประเมินคุณภาพ -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  
+  <!-- Tailwind Configuration สำหรับแต่งสีพาสเทล ฟอนต์ และแอนิเมชัน -->
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Prompt', 'sans-serif'],
+            mono: ['Roboto Mono', 'monospace'],
+          },
+          colors: {
+            brand: {
+              50: '#f0fdfa',
+              100: '#ccfbf1',
+              200: '#99f6e4',
+              300: '#5eead4',
+              400: '#2dd4bf',
+              500: '#14b8a6', // Teal pastel
+              600: '#0d9488',
+              700: '#0f766e',
+            }
+          },
+          animation: {
+            'gradient-x': 'gradient-x 3s ease infinite',
+            'shimmer': 'shimmer 1.5s infinite',
+            'pulse-soft': 'pulse-soft 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+            'modal-pop': 'modal-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards',
+            'arrow-bounce': 'arrow-bounce 1s infinite',
+          },
+          keyframes: {
+            'gradient-x': {
+              '0%, 100%': {
+                'background-size': '200% 200%',
+                'background-position': 'left center'
+              },
+              '50%': {
+                'background-size': '200% 200%',
+                'background-position': 'right center'
+              }
+            },
+            'shimmer': {
+              '100%': {
+                'transform': 'translateX(100%)',
+              }
+            },
+            'pulse-soft': {
+              '0%, 100%': {
+                'opacity': '1',
+                'transform': 'scale(1)'
+              },
+              '50%': {
+                'opacity': '.85',
+                'transform': 'scale(0.98)'
+              }
+            },
+            'modal-pop': {
+              '0%': {
+                'opacity': '0',
+                'transform': 'scale(0.95) translateY(10px)'
+              },
+              '100%': {
+                'opacity': '1',
+                'transform': 'scale(1) translateY(0)'
+              }
+            },
+            'arrow-bounce': {
+              '0%, 100%': {
+                'transform': 'translateX(0)',
+              },
+              '50%': {
+                'transform': 'translateX(8px)',
+              }
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- นำเข้าไฟล์ CSS -->
+  <?!= include('css'); ?>
+  
+  <style>
+    /* คลาสเสริมสำหรับแยกสีหัวตาราง Level 1, 2, 3 ตามเกณฑ์ของฝ่ายห้องปฏิบัติการ */
+    .header-level-1 { background-color: #ffe4e6 !important; color: #9f1239 !important; } /* Soft Rose pastel */
+    .header-level-2 { background-color: #e0f2fe !important; color: #0369a1 !important; } /* Soft Sky pastel */
+    .header-level-3 { background-color: #f3e8ff !important; color: #6b21a8 !important; } /* Soft Lavender pastel */
+  </style>
+</head>
+
+<body class="bg-gradient-to-br from-teal-50 via-blue-50 to-purple-50 min-h-screen text-slate-700 antialiased overflow-hidden flex relative">
+  
+  <!-- 1. Global Loading Overlay (Dot Grid Loader - ปรับให้แสดงเฉพาะ Animation ไม่มีข้อความ) -->
+  <div id="globalLoader" class="fixed inset-0 z-[9999] bg-white/80 backdrop-blur-md flex flex-col justify-center items-center transition-opacity duration-300">
+    <div class="dot-grid-loader">
+      <div></div><div></div><div></div>
+      <div></div><div></div><div></div>
+      <div></div><div></div><div></div>
+    </div>
+  </div>
+
+  <!-- 2. UX Dim Screen Overlay (ระบบหรี่หน้าจอและนำสายตาบังคับเลือกแผนก ยกเว้นผู้ดูแลระบบ) -->
+  <div id="deptOverlay" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80] hidden transition-opacity duration-300">
+    <!-- กล่องข้อความนำสายตาและไอคอนชี้นำ (ปรับปรุงข้อความและขยายความยาวกล่องให้อยู่บรรทัดเดียวตามเงื่อนไข v0.1.6) -->
+    <div class="absolute left-72 top-[105px] bg-white/95 backdrop-blur-md p-5 rounded-2xl border border-teal-200 shadow-2xl max-w-4xl w-max flex items-center gap-4 animate-modal-pop">
+      <div class="w-12 h-12 rounded-full bg-teal-100 flex items-center justify-center text-teal-600 shrink-0 animate-pulse">
+        <i class="fa-solid fa-arrow-left text-xl animate-arrow-bounce"></i>
+      </div>
+      <div class="whitespace-nowrap pr-2">
+        <h4 class="text-sm font-bold text-slate-800">กรุณาเลือกแผนกห้องปฏิบัติการเลือกแผนกเพื่อปลดล็อกระบบงานประกันคุณภาพทางห้องปฏิบัติการ</h4>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. Sidebar (Glassmorphism - ยกระดับ z-index เป็น z-[85] เพื่อให้อยู่เหนือ overlay ม่านดำ ทำให้สามารถกดคลิกและมีปฏิกิริยาตอบสนองได้ตลอดเวลา) -->
+  <aside id="sidebar" class="w-64 h-screen bg-slate-200/60 backdrop-blur-xl border-r border-white/60 shadow-[4px_0_24px_rgba(0,0,0,0.02)] flex flex-col relative z-[85] transition-all duration-300 ease-in-out shrink-0">
+    
+    <!-- Logo & Version Indicator -->
+    <div class="h-20 px-6 border-b border-white/50 flex items-center justify-between shrink-0">
+      <div class="flex items-center gap-3 overflow-hidden whitespace-nowrap logo-container">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-400 to-blue-400 flex items-center justify-center text-white shadow-lg shadow-brand-500/30 shrink-0">
+          <i class="fa-solid fa-microscope text-xl"></i>
+        </div>
+        <div class="flex flex-col">
+          <div class="font-bold text-lg leading-tight text-slate-800">
+            QA <span class="text-brand-600">Manager</span>
+          </div>
+          <span class="text-[10px] bg-gradient-to-r from-pink-300 via-purple-300 to-blue-300 bg-[length:200%_auto] animate-gradient-x text-slate-800 px-2 py-0.5 rounded-md shadow-sm mt-0.5 w-max font-bold tracking-wider border border-white/40">v0.1.6 AI Core</span>
+        </div>
+      </div>
+      <button id="toggleSidebar" class="text-slate-400 hover:text-brand-600 transition-colors shrink-0" aria-label="Toggle Navigation">
+        <i class="fa-solid fa-bars-staggered text-xl"></i>
+      </button>
+    </div>
+
+    <!-- Department Selector (ยกระดับ z-index ให้อยู่เหนือ overlay เมื่อบังคับเลือกแผนก) -->
+    <div id="deptSelectContainer" class="px-4 py-3 border-b border-white/50 bg-white/20 shrink-0 transition-all duration-300 relative">
+      <label for="globalDepartmentSelect" class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 px-1">
+        <i class="fa-solid fa-building-user mr-1"></i> แผนกห้องปฏิบัติการ
+      </label>
+      <div class="relative">
+        <select id="globalDepartmentSelect" onchange="handleDepartmentSelect()" class="w-full appearance-none bg-white/80 backdrop-blur-md border border-white/80 shadow-sm rounded-xl py-2 pl-3 pr-8 text-sm font-bold text-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+          <option value="">-- กำลังโหลดแผนก --</option>
+        </select>
+        <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-brand-500">
+          <i class="fa-solid fa-chevron-down text-xs"></i>
+        </div>
+      </div>
+    </div>
+
+    <!-- Navigation Menu (สลับตำแหน่งเมนูตามหลักวิชาการ) -->
+    <nav class="flex-1 overflow-y-auto py-4 px-4 space-y-2 custom-scrollbar">
+      
+      <!-- เมนู 1: Quality Assurance Dashboard (เมนูแรกเริ่ม) -->
+      <button onclick="switchView('dashboard')" id="nav-dashboard" class="nav-item group w-full flex items-center gap-4 px-4 py-3 rounded-2xl hover:bg-white/40 hover:text-brand-600 text-slate-500 transition-all">
+        <div class="w-8 flex justify-center"><i class="fa-solid fa-gauge-high text-xl"></i></div>
+        <span class="font-medium whitespace-nowrap menu-text">Dashboard</span>
+      </button>
+      
+      <!-- เมนู 2: IQC (อยู่ด้านบน EQA) -->
+      <button onclick="switchView('iqc')" id="nav-iqc" class="nav-item group w-full flex items-center gap-4 px-4 py-3 rounded-2xl hover:bg-white/40 hover:text-brand-600 text-slate-500 transition-all">
+        <div class="w-8 flex justify-center"><i class="fa-solid fa-chart-line text-xl"></i></div>
+        <span class="font-medium whitespace-nowrap menu-text">IQC</span>
+      </button>
+
+      <!-- เมนู 3: EQA -->
+      <button onclick="switchView('eqa')" id="nav-eqa" class="nav-item group w-full flex items-center gap-4 px-4 py-3 rounded-2xl hover:bg-white/40 hover:text-brand-600 text-slate-500 transition-all">
+        <div class="w-8 flex justify-center"><i class="fa-solid fa-vial-circle-check text-xl"></i></div>
+        <span class="font-medium whitespace-nowrap menu-text">EQA</span>
+      </button>
+
+      <!-- เมนู 4: Monitoring (Precision อยู่เหนือ Accuracy) -->
+      <div class="nav-group pt-2">
+        <button id="nav-monitoring-parent" onclick="toggleMonitoringMenu()" class="nav-item group w-full flex items-center justify-between px-4 py-3 rounded-2xl hover:bg-white/40 hover:text-brand-600 text-slate-500 transition-all">
+          <div class="flex items-center gap-4">
+            <div class="w-8 flex justify-center"><i class="fa-solid fa-chart-pie text-xl"></i></div>
+            <span class="font-medium whitespace-nowrap menu-text">Monitoring</span>
+          </div>
+          <i id="monitoringChevron" class="fa-solid fa-chevron-down text-xs transition-transform duration-300 menu-text opacity-70"></i>
+        </button>
+        <!-- Sub-menu (Precision อยู่ด้านบน Accuracy) -->
+        <div id="monitoringSubMenu" class="hidden flex-col pl-14 pr-4 py-2 space-y-2 menu-text transition-all">
+          <button onclick="switchView('precision')" id="nav-precision" class="nav-item group w-full flex items-center gap-3 py-2 px-3 rounded-xl text-sm font-medium text-slate-500 hover:text-brand-600 hover:bg-white/60 transition-colors">
+            <span class="w-1.5 h-1.5 rounded-full bg-slate-300 group-hover:bg-brand-500 transition-colors"></span>
+            Precision
+          </button>
+          <button onclick="switchView('accuracy')" id="nav-accuracy" class="nav-item group w-full flex items-center gap-3 py-2 px-3 rounded-xl text-sm font-medium text-slate-500 hover:text-brand-600 hover:bg-white/60 transition-colors">
+            <span class="w-1.5 h-1.5 rounded-full bg-slate-300 group-hover:bg-brand-500 transition-colors"></span>
+            Accuracy
+          </button>
+        </div>
+      </div>
+
+    </nav>
+
+    <!-- Settings (ผู้ดูแลระบบ - ปรับปรุงโครงสร้างให้อยู่รอดเหนือกายภาพ Overlay เสมอตามข้อ 2) -->
+    <div id="devModeContainer" class="p-4 border-t border-white/50 relative shrink-0">
+      <button id="btnEnterDev" onclick="promptSettings()" class="nav-item group w-full flex items-center gap-4 px-4 py-3 rounded-2xl hover:bg-white/40 hover:text-brand-600 text-slate-400 transition-all">
+        <div class="w-8 flex justify-center"><i class="fa-solid fa-lock text-lg"></i></div>
+        <span class="font-medium whitespace-nowrap menu-text text-sm">ผู้ดูแลระบบ</span>
+      </button>
+
+      <div id="devModeSection" class="hidden flex-col">
+        <button onclick="switchView('settings')" id="nav-settings" class="nav-item group w-full flex items-center gap-4 px-4 py-3 rounded-2xl hover:bg-white/40 hover:text-slate-800 text-slate-500 transition-all">
+          <div class="w-8 flex justify-center"><i class="fa-solid fa-gear text-xl"></i></div>
+          <span class="font-medium whitespace-nowrap menu-text">ตั้งค่าระบบ</span>
+        </button>
+        
+        <div class="mt-4 flex flex-col gap-3 px-2 overflow-hidden whitespace-nowrap">
+          <div class="flex items-center gap-3">
+            <img src="https://ui-avatars.com/api/?name=I3AYY+Admin&background=e0f2fe&color=0284c7" alt="User" class="w-10 h-10 rounded-full border-2 border-white shadow-sm shrink-0">
+            <div class="menu-text">
+              <p class="text-sm font-semibold text-slate-700">I3AYY Admin</p>
+              <p class="text-[10px] text-brand-600 font-medium bg-brand-100 px-2 py-0.5 rounded-full inline-block mt-0.5"><i class="fa-solid fa-code"></i> Dev Mode</p>
+            </div>
+          </div>
+          <button onclick="exitDevMode()" class="w-full py-2 bg-red-50 text-red-500 hover:bg-red-100 hover:text-red-600 rounded-xl text-xs font-medium transition-colors flex items-center justify-center gap-2 menu-text">
+            <i class="fa-solid fa-right-from-bracket"></i> ออกจากโหมดผู้ดูแล
+          </button>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- 4. Main Content Area -->
+  <main class="flex-1 h-screen overflow-y-auto relative p-6 md:p-8 scroll-smooth custom-scrollbar">
+    
+    <!-- ==================== View: Quality Assurance Dashboard ==================== -->
+    <section id="view-dashboard" class="view-section animate-fade-in block">
+      <!-- Control Panel & Filters (ปรับปรุงหัวข้อและชื่อตัวเลือกฟิลเตอร์ใหม่ตามข้อ 1.2) -->
+      <div class="mb-6 p-5 bg-white/40 rounded-3xl border border-white/60 shadow-sm backdrop-blur-md flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div>
+          <h1 class="text-2xl font-bold text-slate-800 mb-1 flex items-center gap-2">
+            <i class="fa-solid fa-circle-nodes text-brand-500"></i> รายงานการประกันคุณภาพทางห้องปฏิบัติการ
+          </h1>
+          <p class="text-xs text-slate-500">ระบบบริหารจัดการและสรุปวิเคราะห์ข้อมูลการควบคุมคุณภาพทางห้องปฏิบัติการทางการแพทย์</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-3">
+          
+          <!-- กรองปี (เปลี่ยนชื่อเป็น "ปี" และ "ทุกปี" ตามข้อ 3.1) -->
+          <div class="bg-white/80 border border-slate-200/80 shadow-inner rounded-xl px-4 py-2 flex items-center gap-2 shadow-sm">
+            <i class="fa-regular fa-calendar text-brand-500"></i>
+            <span class="text-xs font-semibold text-slate-500">ปี:</span>
+            <select id="dashboardYearSelect" onchange="loadDashboardStats()" class="bg-transparent border-none outline-none text-slate-800 font-bold text-sm focus:ring-0 p-0 cursor-pointer">
+              <option value="ALL">ทุกปี</option>
+            </select>
+          </div>
+
+          <!-- กรองชนิด IQC และเพิ่มตัวเลือก "ทุกรายการ" (ข้อ 3.1) -->
+          <div class="bg-white/80 border border-slate-200/80 shadow-inner rounded-xl px-4 py-2 flex items-center gap-2 shadow-sm">
+            <i class="fa-solid fa-chart-line text-purple-500"></i>
+            <span class="text-xs font-semibold text-slate-500">IQC:</span>
+            <select id="dashboardIqcFilterSelect" onchange="loadDashboardStats()" class="bg-transparent border-none outline-none text-slate-800 font-bold text-sm focus:ring-0 p-0 cursor-pointer max-w-[150px]">
+              <option value="ALL">ทุกรายการ</option>
+            </select>
+          </div>
+
+          <!-- กรองชนิด EQA และเพิ่มตัวเลือก "ทุกรายการ" (ข้อ 3.1) -->
+          <div class="bg-white/80 border border-slate-200/80 shadow-inner rounded-xl px-4 py-2 flex items-center gap-2 shadow-sm">
+            <i class="fa-solid fa-vial-circle-check text-brand-500"></i>
+            <span class="text-xs font-semibold text-slate-500">EQA:</span>
+            <select id="dashboardEqaFilterSelect" onchange="loadDashboardStats()" class="bg-transparent border-none outline-none text-slate-800 font-bold text-sm focus:ring-0 p-0 cursor-pointer max-w-[150px]">
+              <option value="ALL">ทุกรายการ</option>
+            </select>
+          </div>
+
+          <button onclick="loadDashboardStats()" class="bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm flex items-center gap-2 transition-all">
+            <i class="fa-solid fa-rotate"></i> อัปเดตสถิติ
+          </button>
+        </div>
+      </div>
+
+      <!-- Quick Stats KPI Cards (ปรับปรุงการเรียงและการ์ด EQA ใหม่ตามเกณฑ์) -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+        
+        <!-- การ์ด 1: IQC : Precision (เปลี่ยนชื่อและข้อความตามข้อ 1.2) -->
+        <div class="glass-card relative overflow-hidden rounded-3xl p-6 border border-white/70 shadow-lg group hover:shadow-xl transition-all hover:-translate-y-1 duration-300">
+          <div class="absolute -right-6 -bottom-6 text-purple-500/10 text-8xl pointer-events-none group-hover:scale-110 transition-transform"><i class="fa-solid fa-chart-line"></i></div>
+          <div class="flex items-center gap-4 mb-3">
+            <div class="w-12 h-12 rounded-2xl bg-purple-50 flex items-center justify-center text-purple-600 shadow-inner">
+              <i class="fa-solid fa-chart-area text-2xl"></i>
+            </div>
+            <div>
+              <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">IQC : Precision</p>
+              <h3 id="statIqcPrecision" class="text-3xl font-bold text-slate-800 mt-0.5 font-mono">0.0%</h3>
+            </div>
+          </div>
+          <div class="w-full bg-slate-100 rounded-full h-2 mt-4 overflow-hidden shadow-inner">
+            <div id="barIqcPrecision" class="bg-gradient-to-r from-purple-400 to-indigo-500 h-2 rounded-full transition-all duration-1000" style="width: 0%"></div>
+          </div>
+          <span class="text-[11px] text-slate-500 mt-2.5 block">ร้อยละของ %CV ที่เข้าเกณฑ์ควบคุม: <span id="statIqcPrecisionDetail" class="font-mono font-bold text-purple-600">0/0</span></span>
+        </div>
+
+        <!-- การ์ด 2: EQA : Accuracy (ปรับปรุงใหม่ตามข้อ 1.3.1) -->
+        <div class="glass-card relative overflow-hidden rounded-3xl p-6 border border-white/70 shadow-lg group hover:shadow-xl transition-all hover:-translate-y-1 duration-300">
+          <div class="absolute -right-6 -bottom-6 text-emerald-500/10 text-8xl pointer-events-none group-hover:scale-110 transition-transform"><i class="fa-solid fa-circle-check"></i></div>
+          <div class="flex items-center gap-4 mb-2">
+            <div class="w-12 h-12 rounded-2xl bg-brand-100 flex items-center justify-center text-brand-600 shadow-inner">
+              <i class="fa-solid fa-vial-virus text-2xl"></i>
+            </div>
+            <div class="flex-1">
+              <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">EQA : Accuracy</p>
+              <!-- ตัวเลขร้อยละหลัก ใช้สีตัวอักษรสีดำเด่นชัด (ข้อ 1.3.1) -->
+              <h3 id="statEqaPassRate" class="text-3xl font-bold text-slate-800 mt-0.5 font-mono">0.0%</h3>
+            </div>
+          </div>
+          
+          <!-- สัดส่วนเศษส่วนแสดงด้านล่างตัวเลขหลัก (ข้อ 1.3.1) -->
+          <div class="text-[11px] text-slate-500 font-medium mb-3">
+            ร้อยละของ %Bias ที่เข้าเกณฑ์ควบคุม: <span id="statEqaPassDetail" class="font-mono font-bold text-teal-600">0/0</span>
+          </div>
+
+          <!-- Progress bar 1: ร้อยละของการรายงานผล EQA -->
+          <div class="mt-2 space-y-1">
+            <div class="flex justify-between text-[10px] font-semibold text-slate-500">
+              <span>ร้อยละของการรายงานผล EQA</span>
+              <span id="labelEqaParticipation" class="font-mono text-brand-600 font-bold">0.0%</span>
+            </div>
+            <div class="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden shadow-inner">
+              <div id="barEqaParticipation" class="bg-gradient-to-r from-brand-400 to-brand-600 h-1.5 rounded-full transition-all duration-1000" style="width: 0%"></div>
+            </div>
+          </div>
+
+          <!-- Progress bar 2: ร้อยละของ EQA ที่ผ่านเกณฑ์ -->
+          <div class="mt-2 space-y-1">
+            <div class="flex justify-between text-[10px] font-semibold text-slate-500">
+              <span>ร้อยละของ EQA ที่ผ่านเกณฑ์</span>
+              <span id="labelEqaPassRate" class="font-mono text-emerald-600 font-bold">0.0%</span>
+            </div>
+            <div class="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden shadow-inner">
+              <div id="barEqaPassRate" class="bg-gradient-to-r from-emerald-400 to-teal-500 h-1.5 rounded-full transition-all duration-1000" style="width: 0%"></div>
+            </div>
+          </div>
+
+          <!-- Progress bar 3: ร้อยละของ %Bias ที่เข้าเกณฑ์ควบคุม -->
+          <div class="mt-2 space-y-1">
+            <div class="flex justify-between text-[10px] font-semibold text-slate-500">
+              <span>ร้อยละของ %Bias ที่เข้าเกณฑ์ควบคุม</span>
+              <span id="labelEqaBiasLimit" class="font-mono text-sky-600 font-bold">0.0%</span>
+            </div>
+            <div class="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden shadow-inner">
+              <div id="barEqaBiasLimit" class="bg-gradient-to-r from-sky-400 to-blue-500 h-1.5 rounded-full transition-all duration-1000" style="width: 0%"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- การ์ด 3: รายการทดสอบทางห้องปฏิบัติการ (ปรับปรุงใหม่ตามข้อ 1.3.2) -->
+        <div onclick="openTestItemsModal()" class="glass-card cursor-pointer relative overflow-hidden rounded-3xl p-6 border border-white/70 shadow-lg group hover:shadow-xl hover:scale-[1.02] active:scale-[0.98] transition-all hover:-translate-y-1 duration-300">
+          <div class="absolute -right-6 -bottom-6 text-sky-500/10 text-8xl pointer-events-none group-hover:scale-110 transition-transform"><i class="fa-solid fa-vials"></i></div>
+          <div class="flex items-center gap-4 mb-3">
+            <div class="w-12 h-12 rounded-2xl bg-sky-50 flex items-center justify-center text-sky-600 shadow-inner">
+              <i class="fa-solid fa-microscope text-2xl"></i>
+            </div>
+            <div>
+              <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">รายการทดสอบทางห้องปฏิบัติการ</p>
+              <h3 id="statTotalTests" class="text-3xl font-bold text-slate-800 mt-0.5">0 รายการ</h3>
+            </div>
+          </div>
+          <!-- เน้นย้ำข้อความตัวหน้าและสัดส่วนเปอร์เซ็นต์อย่างชัดเจนตามข้อ 1.3.2 -->
+          <div class="space-y-2 mt-4 border-t border-slate-100 pt-3">
+            <div class="flex items-center justify-between text-xs text-slate-700">
+              <span class="flex items-center gap-1.5 font-bold"><i class="fa-solid fa-square-poll-vertical text-purple-400"></i> รายการตรวจที่มี IQC:</span>
+              <span id="statTestIqcCheck" class="font-bold text-slate-950 font-mono">0/0 (0.0%)</span>
+            </div>
+            <div class="flex items-center justify-between text-xs text-slate-700">
+              <span class="flex items-center gap-1.5 font-bold"><i class="fa-solid fa-square-poll-horizontal text-brand-400"></i> รายการตรวจที่มี EQA:</span>
+              <span id="statTestEqaCheck" class="font-bold text-slate-950 font-mono">0/0 (0.0%)</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Main Visual Analytics (กราฟคะแนนคุณภาพประจำปี - ปรับคำตามข้อ 1.2) -->
+      <div class="grid grid-cols-1 gap-6 mb-8">
+        <div class="glass-card rounded-3xl p-6 border border-white/60 shadow-xl flex flex-col justify-between min-h-[460px]">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 border-b border-slate-100 pb-3">
+            <h3 class="text-lg font-bold text-slate-700 flex items-center gap-2">
+              <i class="fa-solid fa-chart-line text-brand-500"></i> Summary
+            </h3>
+            
+            <!-- Segmented Toggle Control สำหรับฟิลเตอร์แสดงกราฟ -->
+            <div class="flex items-center gap-2 bg-slate-100 p-1 rounded-xl shadow-inner border border-slate-200/50">
+              <button onclick="setChartMode('IQC')" id="btnChartModeIqc" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold text-slate-500 hover:text-slate-700 transition-all">IQC</button>
+              <button onclick="setChartMode('EQA')" id="btnChartModeEqa" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold text-slate-500 hover:text-slate-700 transition-all">EQA</button>
+              <button onclick="setChartMode('ALL')" id="btnChartModeAll" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-white text-slate-800 shadow-sm transition-all border border-slate-200">ทั้งหมด</button>
+            </div>
+          </div>
+          <!-- Graph Area -->
+          <div class="flex-1 w-full relative min-h-[340px]">
+            <canvas id="dashboardChartCanvas"></canvas>
+            <div id="dashboardChartEmpty" class="absolute inset-0 flex flex-col items-center justify-center text-slate-400 hidden">
+              <i class="fa-solid fa-chart-bar text-5xl mb-3 opacity-20"></i>
+              <p>ไม่พบข้อมูลสรุปสถิติสำหรับกราฟในแผนกและตัวเลือกที่กรอง</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Compliance & Standards Panel -->
+      <div class="glass-card rounded-3xl p-6 border border-white/60 shadow-md bg-gradient-to-r from-brand-50/40 via-blue-50/40 to-indigo-50/40">
+        <h3 class="text-sm font-bold text-slate-600 uppercase tracking-wider mb-4 flex items-center gap-2">
+          <i class="fa-solid fa-shield-halved text-brand-500"></i> Laboratory Standards Compliance, Cyber Security & PDPA Protected
+        </h3>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div class="flex items-start gap-3 bg-white/40 p-3.5 rounded-2xl border border-white/60 shadow-sm">
+            <div class="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+              <i class="fa-solid fa-check text-sm"></i>
+            </div>
+            <div>
+              <h4 class="text-xs font-bold text-slate-700">ISO 15189 Standard Compliance</h4>
+              <p class="text-[11px] text-slate-500 mt-0.5">โครงสร้างการบันทึก การประเมินผล และการวิเคราะห์ควบคุมความถูกต้องแม่นยำทางสถิติ ออกแบบตามเกณฑ์มาตรฐานสากล ISO 15189:2022</p>
+            </div>
+          </div>
+          <div class="flex items-start gap-3 bg-white/40 p-3.5 rounded-2xl border border-white/60 shadow-sm">
+            <div class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+              <i class="fa-solid fa-user-shield text-sm"></i>
+            </div>
+            <div>
+              <h4 class="text-xs font-bold text-slate-700">PDPA & Patient Confidentiality</h4>
+              <p class="text-[11px] text-slate-500 mt-0.5">ระบบจัดเก็บในขอบเขตปิด (Private Sandbox) ไม่บันทึกข้อมูลระบุตัวบุคคลและไม่มีการเผยแพร่ข้อมูลผู้ป่วยเพื่อการคุ้มครองข้อมูลตามกฎหมาย PDPA อย่างสูงสุด</p>
+            </div>
+          </div>
+          <div class="flex items-start gap-3 bg-white/40 p-3.5 rounded-2xl border border-white/60 shadow-sm">
+            <div class="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
+              <i class="fa-solid fa-lock text-sm"></i>
+            </div>
+            <div>
+              <h4 class="text-xs font-bold text-slate-700">Enterprise Cyber Security</h4>
+              <p class="text-[11px] text-slate-500 mt-0.5">จำกัดการเข้าถึงโหมดการแก้ไขข้อมูลและตั้งค่าด้วยรหัสผ่านความปลอดภัยสูง แยกฐานข้อมูลเชิงกายภาพ (Department Schema Partition) เพื่อความเสถียร</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== View: EQA (External Quality Assessment) ==================== -->
+    <section id="view-eqa" class="view-section animate-fade-in hidden">
+      <!-- Control Panel EQA -->
+      <div class="mb-5 p-4 bg-white/40 rounded-2xl border border-white/60 shadow-sm backdrop-blur-md flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+        <div>
+          <h1 class="text-2xl font-bold text-slate-800 mb-1">External Quality Assessment</h1>
+          <p class="text-xs text-slate-500">ระบบบริหารจัดการและสรุปวิเคราะห์ผลการประเมินคุณภาพภายนอก (EQA)</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-3 w-full xl:w-auto">
+          <!-- Filter 1: กรอง EQA -->
+          <div class="bg-white border border-slate-200 shadow-inner rounded-xl px-3 py-1.5 flex items-center gap-2 text-sm w-full sm:w-auto">
+            <span class="text-xs font-medium text-slate-400">กรอง EQA:</span>
+            <select id="filterEqaName" onchange="filterDashboard()" class="bg-transparent border-none outline-none font-bold text-slate-700 text-xs cursor-pointer focus:ring-0 p-0 w-full sm:w-44">
+              <option value="ALL">ทุกรายการ</option>
+            </select>
+          </div>
+
+          <!-- Filter 2: กรองปี -->
+          <div class="bg-white border border-slate-200 shadow-inner rounded-xl px-3 py-1.5 flex items-center gap-2 text-sm w-full sm:w-auto">
+            <span class="text-xs font-medium text-slate-400">กรอง ปี:</span>
+            <select id="filterEqaYear" onchange="filterDashboard()" class="bg-transparent border-none outline-none text-slate-700 text-xs cursor-pointer focus:ring-0 p-0 w-full sm:w-28">
+              <option value="ALL">ทุกปี</option>
+            </select>
+          </div>
+
+          <!-- Search Bar -->
+          <div class="relative w-full sm:w-64">
+            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+              <i class="fa-solid fa-search"></i>
+            </div>
+            <input type="text" id="searchDashboard" onkeyup="filterDashboard()" class="block w-full pl-9 pr-3 py-2 border border-slate-200 shadow-inner rounded-xl text-xs focus:ring-2 focus:ring-brand-500 bg-white/80 transition-all" placeholder="ค้นหาตามชื่อ EQA, ปี, รอบ...">
+          </div>
+          
+          <!-- Refresh Button -->
+          <button onclick="refreshData()" class="group relative bg-white hover:bg-slate-50 text-slate-600 w-9 h-9 rounded-xl shadow-sm border border-slate-200 flex items-center justify-center transition-all transform hover:-translate-y-0.5 shrink-0">
+            <i class="fa-solid fa-arrows-rotate group-hover:rotate-180 transition-transform duration-500 text-sm"></i>
+          </button>
+          
+          <!-- Add Button -->
+          <button onclick="openEQAModal()" class="bg-gradient-to-r from-brand-500 to-blue-500 hover:from-brand-600 hover:to-blue-600 text-white px-5 py-2 rounded-xl text-xs font-medium shadow-md shadow-brand-500/30 flex items-center gap-2 transition-all transform hover:-translate-y-0.5 shrink-0 w-full sm:w-auto justify-center">
+            <i class="fa-solid fa-plus"></i> บันทึกผล EQA
+          </button>
+        </div>
+      </div>
+      
+      <!-- Table Card EQA -->
+      <div class="glass-card rounded-3xl border border-white/60 shadow-xl shadow-brand-500/5 relative min-h-[400px] flex flex-col overflow-hidden">
+        <!-- Dashboard Loader (เปลี่ยนเป็น Dot Grid Loader ไร้ข้อความ) -->
+        <div id="dashboardLoader" class="absolute inset-0 bg-white/80 backdrop-blur-sm z-10 flex flex-col items-center justify-center transition-opacity duration-300">
+          <div class="dot-grid-loader scale-75">
+            <div></div><div></div><div></div>
+            <div></div><div></div><div></div>
+            <div></div><div></div><div></div>
+          </div>
+        </div>
+
+        <div class="overflow-auto flex-1 max-h-[75vh] custom-scrollbar">
+          <table class="w-full text-left border-collapse min-w-[1000px]">
+            <thead class="sticky top-0 z-20">
+              <tr class="bg-slate-100/95 backdrop-blur-xl text-slate-700 text-sm shadow-[0_1px_0_0_rgba(203,213,225,1)]">
+                <th class="py-4 px-4 font-semibold w-[30%]">ชื่อ EQA และ ปี (Year)</th>
+                <th class="py-4 px-2 font-semibold w-[20%] text-center">รอบที่บันทึกแล้ว</th>
+                <th class="py-4 px-2 font-semibold w-[15%] text-center">เข้าร่วม (%)</th>
+                <th class="py-4 px-2 font-semibold w-[15%] text-center">ผ่านเกณฑ์ (%)</th>
+                <th class="py-4 px-2 font-semibold w-[12%] text-center">Certificate</th>
+                <th class="py-4 px-4 font-semibold w-[8%] text-center">รายละเอียด</th>
+              </tr>
+            </thead>
+            <tbody id="dashboardTableBody" class="divide-y divide-slate-100 text-sm">
+              <!-- Data -->
+            </tbody>
+          </table>
+        </div>
+
+        <div id="dashboardEmptyState" class="hidden flex-col items-center justify-center p-12 text-center h-full flex-1 animate-fade-in">
+          <div class="w-24 h-24 bg-brand-100 text-brand-500 rounded-full flex items-center justify-center text-4xl mb-4 shadow-inner">
+            <i class="fa-solid fa-folder-open"></i>
+          </div>
+          <h3 class="text-xl font-bold text-slate-700 mb-2" id="dashboardEmptyTitle">ยังไม่มีข้อมูลการประเมิน</h3>
+          <p class="text-slate-500 max-w-md" id="dashboardEmptyDesc">กดปุ่ม "บันทึกผล EQA" ด้านบนเพื่อเริ่มลงข้อมูลการประเมินคุณภาพภายนอกรอบใหม่</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== View: IQC (Internal Quality Control) ==================== -->
+    <section id="view-iqc" class="view-section animate-fade-in hidden">
+      <!-- Control Panel IQC -->
+      <div class="mb-5 p-4 bg-white/40 rounded-2xl border border-white/60 shadow-sm backdrop-blur-md flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+        <div>
+          <h1 class="text-2xl font-bold text-slate-800 mb-1">Internal Quality Control</h1>
+          <p class="text-xs text-slate-500">ระบบบริหารจัดการและสรุปผลการควบคุมคุณภาพภายในรายเดือน (IQC)</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-3">
+          <!-- Year Selection -->
+          <div class="bg-white border border-slate-200 shadow-inner rounded-xl px-3 py-1.5 flex items-center gap-2">
+            <i class="fa-regular fa-calendar-check text-blue-500"></i>
+            <span class="text-xs font-medium text-slate-500">ปี:</span>
+            <select id="filterYearIQC" onchange="renderIQC()" class="bg-transparent border-none outline-none text-slate-700 font-bold text-sm focus:ring-0 p-0 cursor-pointer"></select>
+          </div>
+          
+          <!-- Level Toggle -->
+          <div class="bg-white border border-slate-200 p-1 rounded-xl flex shadow-inner">
+            <button id="btnIqcLevel1" onclick="toggleIQCLevel(1)" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-500 text-white shadow-sm transition-all">Level 1</button>
+            <button id="btnIqcLevel2" onclick="toggleIQCLevel(2)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-500 hover:text-blue-600 hover:bg-slate-50 transition-all">Level 2</button>
+            <button id="btnIqcLevel3" onclick="toggleIQCLevel(3)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-500 hover:text-blue-600 hover:bg-slate-50 transition-all">Level 3</button>
+          </div>
+          
+          <!-- Refresh Button -->
+          <button onclick="refreshData()" class="group relative bg-white hover:bg-slate-50 text-slate-600 w-9 h-9 rounded-xl shadow-sm border border-slate-200 flex items-center justify-center transition-all transform hover:-translate-y-0.5">
+            <i class="fa-solid fa-arrows-rotate group-hover:rotate-180 transition-transform duration-500 text-sm"></i>
+          </button>
+          
+          <!-- Add Button -->
+          <button onclick="openIQCModal()" class="bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 text-white px-5 py-2 rounded-xl text-xs font-medium shadow-md shadow-blue-500/30 flex items-center gap-2 transition-all transform hover:-translate-y-0.5">
+            <i class="fa-solid fa-plus"></i> บันทึกผล IQC
+          </button>
+        </div>
+      </div>
+
+      <!-- Main Table Card IQC -->
+      <div class="glass-card rounded-3xl border border-white/60 shadow-xl shadow-blue-500/5 relative min-h-[500px] flex flex-col overflow-hidden">
+        <!-- IQC Loader (เปลี่ยนเป็น Dot Grid Loader ไร้ข้อความ) -->
+        <div id="iqcLoader" class="absolute inset-0 bg-white/80 backdrop-blur-sm z-10 flex flex-col items-center justify-center transition-opacity duration-300 hidden">
+          <div class="dot-grid-loader scale-75">
+            <div></div><div></div><div></div>
+            <div></div><div></div><div></div>
+            <div></div><div></div><div></div>
+          </div>
+        </div>
+
+        <div class="overflow-auto flex-1 max-h-[75vh] custom-scrollbar">
+          <table class="w-full text-left border-collapse min-w-[1000px]">
+            <thead class="sticky top-0 z-20">
+              <tr class="bg-slate-100/95 backdrop-blur-xl text-slate-700 text-sm shadow-[0_1px_0_0_rgba(203,213,225,1)]">
+                <th class="py-4 px-2 font-semibold text-center w-[4%]">No.</th>
+                <th class="py-4 px-4 font-semibold w-[16%] border-r border-slate-200">Test Name</th>
+                <th class="py-4 px-4 font-semibold w-[10%] border-r border-slate-200 text-center">Method</th>
+                <th class="py-4 px-2 font-semibold w-[6%] border-r border-slate-200 text-center">Value</th>
+                <th class="py-4 px-1 text-center text-sm font-semibold w-[5.3%]">ม.ค.</th>
+                <th class="py-4 px-1 text-center text-sm font-semibold w-[5.3%]">ก.พ.</th>
+                <th class="py-4 px-1 text-center text-sm font-semibold w-[5.3%]">มี.ค.</th>
+                <th class="py-4 px-1 text-center text-sm font-semibold w-[5.3%]">เม.ย.</th>
+                <th class="py-4 px-1 text-center text-sm font-semibold w-[5.3%]">พ.ค.</th>
+                <th class="py-4 px-1 text-center text-sm font-semibold w-[5.3%]">มิ.ย.</th>
+                <th class="py-4 px-1 text-center text-sm font-semibold w-[5.3%]">ก.ค.</th>
+                <th class="py-4 px-1 text-center text-sm font-semibold w-[5.3%]">ส.ค.</th>
+                <th class="py-4 px-1 text-center text-sm font-semibold w-[5.3%]">ก.ย.</th>
+                <th class="py-4 px-1 text-center text-sm font-semibold w-[5.3%]">ต.ค.</th>
+                <th class="py-4 px-1 text-center text-sm font-semibold w-[5.3%]">พ.ย.</th>
+                <th class="py-4 px-1 text-center text-sm font-semibold w-[5.3%]">ธ.ค.</th>
+              </tr>
+            </thead>
+            <tbody id="iqcTableBody" class="divide-y divide-slate-100 text-sm">
+              <!-- IQC Row Data -->
+            </tbody>
+          </table>
+          <div id="iqcEmptyState" class="hidden flex-col items-center justify-center p-12 text-center text-slate-400 h-full flex-1">
+             <i class="fa-solid fa-microscope text-4xl mb-3 opacity-50"></i>
+             <p>ไม่มีข้อมูล Test ที่กำหนดเครื่องตรวจวิเคราะห์ใน MetaData (หรือยังไม่ได้เลือกแผนก)</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== View: Monitoring Accuracy ==================== -->
+    <section id="view-accuracy" class="view-section animate-fade-in hidden">
+      <!-- Control Panel Accuracy -->
+      <div class="mb-5 p-4 bg-white/40 rounded-2xl border border-white/60 shadow-sm backdrop-blur-md flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+        <div>
+          <h1 class="text-2xl font-bold text-slate-800 mb-1">Monitoring: Accuracy</h1>
+          <p class="text-xs text-slate-500">ติดตามและวิเคราะห์ความถูกต้อง (Accuracy) ประเมินจาก %Bias เทียบกับเกณฑ์มาตรฐาน (TEa)</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-3">
+          
+          <!-- แสดงสรุปร้อยละของ EQA ที่ผ่านเกณฑ์สะสมประจำปี (ข้อ 3.2) -->
+          <div class="bg-gradient-to-r from-teal-50 to-brand-50 border border-teal-200 rounded-xl px-4 py-1.5 flex items-center gap-2 shadow-sm animate-pulse-soft">
+            <span class="text-xs font-bold text-slate-500">ร้อยละของ EQA ที่ผ่านเกณฑ์สะสม:</span>
+            <span id="monitoringAccuracyPassPercent" class="text-sm font-bold text-emerald-600 font-mono">0.0%</span>
+          </div>
+
+          <!-- Year Selection -->
+          <div class="bg-white border border-slate-200 shadow-inner rounded-xl px-3 py-1.5 flex items-center gap-2">
+            <i class="fa-regular fa-calendar-check text-brand-500"></i>
+            <span class="text-xs font-medium text-slate-500">ปี:</span>
+            <select id="filterYearAccuracy" onchange="renderAccuracy()" class="bg-transparent border-none outline-none text-slate-700 font-bold text-sm focus:ring-0 p-0 cursor-pointer"></select>
+          </div>
+          
+          <!-- View Toggle -->
+          <div class="bg-white border border-slate-200 p-1 rounded-xl flex shadow-inner">
+            <button id="btnTableAcc" onclick="toggleViewMode('accuracy', 'table')" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-brand-500 text-white shadow-sm flex items-center gap-2 transition-all">
+              <i class="fa-solid fa-table"></i> ตาราง
+            </button>
+            <button id="btnGraphAcc" onclick="toggleViewMode('accuracy', 'graph')" class="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-500 hover:text-brand-600 hover:bg-slate-50 flex items-center gap-2 transition-all">
+              <i class="fa-solid fa-chart-line"></i> กราฟ
+            </button>
+          </div>
+
+          <!-- Refresh Button -->
+          <button onclick="refreshData()" class="group relative bg-white hover:bg-slate-50 text-slate-600 w-9 h-9 rounded-xl shadow-sm border border-slate-200 flex items-center justify-center transition-all transform hover:-translate-y-0.5">
+            <i class="fa-solid fa-arrows-rotate group-hover:rotate-180 transition-transform duration-500 text-sm"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Main Card Accuracy -->
+      <div class="glass-card rounded-3xl border border-white/60 shadow-xl shadow-brand-500/5 relative min-h-[500px] flex flex-col overflow-hidden">
+        <!-- Accuracy Loader (เปลี่ยนเป็น Dot Grid Loader ไร้ข้อความ) -->
+        <div id="accuracyLoader" class="absolute inset-0 bg-white/80 backdrop-blur-sm z-10 flex flex-col items-center justify-center transition-opacity duration-300 hidden">
+          <div class="dot-grid-loader scale-75">
+            <div></div><div></div><div></div>
+            <div></div><div></div><div></div>
+            <div></div><div></div><div></div>
+          </div>
+        </div>
+
+        <!-- Mode 1: Table -->
+        <div id="accuracyTableMode" class="overflow-auto flex-1 max-h-[75vh] custom-scrollbar">
+          <table class="w-full text-left border-collapse min-w-[1000px]">
+            <thead class="sticky top-0 z-20">
+              <tr class="bg-slate-100/95 backdrop-blur-xl text-slate-700 text-sm shadow-[0_1px_0_0_rgba(203,213,225,1)]">
+                <th class="py-4 px-2 font-semibold text-center w-[4%]">No.</th>
+                <th class="py-4 px-4 font-semibold w-[16%] border-r border-slate-200">Test Name</th>
+                <th class="py-4 px-2 font-semibold text-center w-[8%] border-r border-slate-200">
+                  <div class="flex flex-col items-center justify-center text-xs">
+                    <span class="font-bold text-sm">%TEa</span>
+                    <span class="text-[10px] text-slate-400 font-normal">(Allowable Error)</span>
+                  </div>
+                </th>
+                <th class="py-4 px-2 font-semibold text-center w-[9%] border-r border-slate-200 bg-brand-50/30">
+                  <div class="flex flex-col items-center justify-center text-xs">
+                    <span class="font-bold text-sm text-brand-700">เกณฑ์ควบคุม</span>
+                    <span class="text-[10px] text-brand-500 font-normal">(Control Limit)</span>
+                  </div>
+                </th>
+                <th class="py-4 px-1 text-center text-sm font-semibold w-[5.2%]">ม.ค.</th>
+                <th class="py-4 px-1 text-center text-sm font-semibold w-[5.2%]">ก.พ.</th>
+                <th class="py-4 px-1 text-center text-sm font-semibold w-[5.2%]">มี.ค.</th>
+                <th class="py-4 px-1 text-center text-sm font-semibold w-[5.2%]">เม.ย.</th>
+                <th class="py-4 px-1 text-center text-sm font-semibold w-[5.2%]">พ.ค.</th>
+                <th class="py-4 px-1 text-center text-sm font-semibold w-[5.2%]">มิ.ย.</th>
+                <th class="py-4 px-1 text-center text-sm font-semibold w-[5.2%]">ก.ค.</th>
+                <th class="py-4 px-1 text-center text-sm font-semibold w-[5.2%]">ส.ค.</th>
+                <th class="py-4 px-1 text-center text-sm font-semibold w-[5.2%]">ก.ย.</th>
+                <th class="py-4 px-1 text-center text-sm font-semibold w-[5.2%]">ต.ค.</th>
+                <th class="py-4 px-1 text-center text-sm font-semibold w-[5.2%]">พ.ย.</th>
+                <th class="py-4 px-1 text-center text-sm font-semibold w-[5.2%]">ธ.ค.</th>
+              </tr>
+            </thead>
+            <tbody id="accuracyTableBody" class="divide-y divide-slate-100 text-sm">
+              <!-- Accuracy Data -->
+            </tbody>
+          </table>
+          <div id="accuracyEmptyState" class="hidden flex-col items-center justify-center p-12 text-center text-slate-400 h-full flex-1">
+             <i class="fa-solid fa-microscope text-4xl mb-3 opacity-50"></i>
+             <p>ไม่มีข้อมูล Test ที่กำหนดเครื่องตรวจวิเคราะห์ใน MetaData</p>
+          </div>
+        </div>
+
+        <!-- Mode 2: Graph -->
+        <div id="accuracyGraphMode" class="hidden flex-1 flex-col p-6 min-h-[500px]">
+          <div class="mb-4 p-4 bg-white/50 rounded-2xl border border-white shadow-sm flex flex-wrap items-center justify-between gap-4">
+            <div class="w-full md:w-auto">
+              <label for="graphTestSelectAccuracy" class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">เลือกรายการทดสอบ</label>
+              <select id="graphTestSelectAccuracy" onchange="renderAccuracyGraph()" class="form-input rounded-xl text-sm border-slate-300 focus:border-brand-500 w-full md:w-80 shadow-sm">
+                <option value="">-- เลือก Test เพื่อดูกราฟ --</option>
+              </select>
+            </div>
+            <div id="accuracyGraphLegend" class="hidden flex items-center gap-4 text-sm font-medium">
+               <div class="flex items-center gap-2"><span class="w-4 h-1 bg-brand-500 rounded-full"></span> เกณฑ์ควบคุม</div>
+               <div class="flex items-center gap-2"><span class="w-4 h-1 bg-blue-500 rounded-full"></span> Absolute %Bias</div>
+            </div>
+          </div>
+
+          <div class="flex-1 w-full p-4 bg-white/30 rounded-2xl border border-white/50 shadow-inner relative">
+            <canvas id="accuracyChartCanvas"></canvas>
+            <div id="accuracyChartEmpty" class="absolute inset-0 flex flex-col items-center justify-center text-slate-400 hidden">
+               <i class="fa-solid fa-chart-line text-5xl mb-3 opacity-30"></i>
+               <p>กรุณาเลือกรายการทดสอบด้านบนเพื่อดูกราฟวิเคราะห์แนวโน้ม</p>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ==================== View: Monitoring Precision ==================== -->
+    <section id="view-precision" class="view-section animate-fade-in hidden">
+      <!-- Control Panel Precision -->
+      <div class="mb-5 p-4 bg-white/40 rounded-2xl border border-white/60 shadow-sm backdrop-blur-md flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+        <div>
+          <h1 class="text-2xl font-bold text-slate-800 mb-1 flex items-center gap-3">Monitoring: Precision</h1>
+          <p class="text-xs text-slate-500">ติดตามและวิเคราะห์ความแม่นยำ (Precision) ประเมินจาก %CV เทียบกับเกณฑ์ควบคุม</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-3 font-sans">
+          
+          <!-- แสดงสรุปร้อยละของ %CV ที่เข้าเกณฑ์ควบคุมสะสมประจำปี (ข้อ 3.1) -->
+          <div class="bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-xl px-4 py-1.5 flex items-center gap-2 shadow-sm animate-pulse-soft">
+            <span class="text-xs font-bold text-slate-500">ร้อยละของ %CV ที่เข้าเกณฑ์ควบคุมสะสม:</span>
+            <span id="monitoringPrecisionPassPercent" class="text-sm font-bold text-purple-600 font-mono">0.0%</span>
+          </div>
+
+          <!-- Year Selection -->
+          <div class="bg-white border border-slate-200 shadow-inner rounded-xl px-3 py-1.5 flex items-center gap-2">
+            <i class="fa-regular fa-calendar-check text-indigo-500"></i>
+            <span class="text-xs font-medium text-slate-500">ปี:</span>
+            <select id="filterYearPrecision" onchange="renderPrecision()" class="bg-transparent border-none outline-none text-slate-700 font-bold text-sm focus:ring-0 p-0 cursor-pointer"></select>
+          </div>
+
+          <!-- Level Toggle -->
+          <div class="bg-white border border-slate-200 p-1 rounded-xl flex shadow-inner">
+            <button id="btnPreLevel1" onclick="togglePrecisionLevel(1)" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-500 text-white shadow-sm transition-all">L1</button>
+            <button id="btnPreLevel2" onclick="togglePrecisionLevel(2)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-500 hover:text-indigo-600 hover:bg-slate-50 transition-all">L2</button>
+            <button id="btnPreLevel3" onclick="togglePrecisionLevel(3)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-500 hover:text-indigo-600 hover:bg-slate-50 transition-all">L3</button>
+          </div>
+          
+          <!-- View Toggle -->
+          <div class="bg-white border border-slate-200 p-1 rounded-xl flex shadow-inner">
+            <button id="btnTablePre" onclick="toggleViewMode('precision', 'table')" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-500 text-white shadow-sm flex items-center gap-2 transition-all">
+              <i class="fa-solid fa-table"></i> ตาราง
+            </button>
+            <button id="btnGraphPre" onclick="toggleViewMode('precision', 'graph')" class="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-500 hover:text-indigo-600 hover:bg-slate-50 flex items-center gap-2 transition-all">
+              <i class="fa-solid fa-chart-line"></i> กราฟ
+            </button>
+          </div>
+
+          <!-- Refresh Button -->
+          <button onclick="refreshData()" class="group relative bg-white hover:bg-slate-50 text-slate-600 w-9 h-9 rounded-xl shadow-sm border border-slate-200 flex items-center justify-center transition-all transform hover:-translate-y-0.5">
+            <i class="fa-solid fa-arrows-rotate group-hover:rotate-180 transition-transform duration-500 text-sm"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Main Card Precision -->
+      <div class="glass-card rounded-3xl border border-white/60 shadow-xl shadow-indigo-500/5 relative min-h-[500px] flex flex-col overflow-hidden">
+        <!-- Precision Loader (เปลี่ยนเป็น Dot Grid Loader ไร้ข้อความ) -->
+        <div id="precisionLoader" class="absolute inset-0 bg-white/80 backdrop-blur-sm z-10 flex flex-col items-center justify-center transition-opacity duration-300 hidden">
+          <div class="dot-grid-loader scale-75">
+            <div></div><div></div><div></div>
+            <div></div><div></div><div></div>
+            <div></div><div></div><div></div>
+          </div>
+        </div>
+
+        <!-- Mode 1: Table -->
+        <div id="precisionTableMode" class="overflow-auto flex-1 max-h-[75vh] custom-scrollbar">
+          <table class="w-full text-left border-collapse min-w-[1000px]">
+            <thead class="sticky top-0 z-20">
+              <tr class="bg-slate-100/95 backdrop-blur-xl text-slate-700 text-sm shadow-[0_1px_0_0_rgba(203,213,225,1)]">
+                <th class="py-4 px-2 font-semibold text-center w-[4%]">No.</th>
+                <th class="py-4 px-4 font-semibold w-[16%] border-r border-slate-200">Test Name</th>
+                <th class="py-4 px-2 font-semibold text-center w-[8%] border-r border-slate-200">
+                  <div class="flex flex-col items-center justify-center text-xs">
+                    <span class="font-bold text-sm">%TEa</span>
+                    <span class="text-[10px] text-slate-400 font-normal">(Allowable Error)</span>
+                  </div>
+                </th>
+                <th class="py-4 px-2 font-semibold text-center w-[9%] border-r border-slate-200 bg-indigo-50/30">
+                  <div class="flex flex-col items-center justify-center text-xs">
+                    <span class="font-bold text-sm text-indigo-700">เกณฑ์ควบคุม</span>
+                    <span class="text-[10px] text-indigo-500 font-normal">(Control Limit)</span>
+                  </div>
+                </th>
+                <th class="py-4 px-1 text-center text-sm font-semibold w-[5.2%]">ม.ค.</th>
+                <th class="py-4 px-1 text-center text-sm font-semibold w-[5.2%]">ก.พ.</th>
+                <th class="py-4 px-1 text-center text-sm font-semibold w-[5.2%]">มี.ค.</th>
+                <th class="py-4 px-1 text-center text-sm font-semibold w-[5.2%]">เม.ย.</th>
+                <th class="py-4 px-1 text-center text-sm font-semibold w-[5.2%]">พ.ค.</th>
+                <th class="py-4 px-1 text-center text-sm font-semibold w-[5.2%]">มิ.ย.</th>
+                <th class="py-4 px-1 text-center text-sm font-semibold w-[5.2%]">ก.ค.</th>
+                <th class="py-4 px-1 text-center text-sm font-semibold w-[5.2%]">ส.ค.</th>
+                <th class="py-4 px-1 text-center text-sm font-semibold w-[5.2%]">ก.ย.</th>
+                <th class="py-4 px-1 text-center text-sm font-semibold w-[5.2%]">ต.ค.</th>
+                <th class="py-4 px-1 text-center text-sm font-semibold w-[5.2%]">พ.ย.</th>
+                <th class="py-4 px-1 text-center text-sm font-semibold w-[5.2%]">ธ.ค.</th>
+              </tr>
+            </thead>
+            <tbody id="precisionTableBody" class="divide-y divide-slate-100 text-sm">
+              <!-- Precision Data -->
+            </tbody>
+          </table>
+          <div id="precisionEmptyState" class="hidden flex-col items-center justify-center p-12 text-center text-slate-400 h-full flex-1">
+             <i class="fa-solid fa-microscope text-4xl mb-3 opacity-50"></i>
+             <p>ไม่มีข้อมูล Test ที่กำหนดเครื่องตรวจวิเคราะห์ใน MetaData</p>
+          </div>
+        </div>
+
+        <!-- Mode 2: Graph -->
+        <div id="precisionGraphMode" class="hidden flex-1 flex-col p-6 min-h-[500px]">
+          <div class="mb-4 p-4 bg-white/50 rounded-2xl border border-white shadow-sm flex flex-wrap items-center justify-between gap-4">
+            <div class="w-full md:w-auto">
+              <label for="graphTestSelectPrecision" class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">เลือกรายการทดสอบ</label>
+              <select id="graphTestSelectPrecision" onchange="renderPrecisionGraph()" class="form-input rounded-xl text-sm border-slate-300 focus:border-indigo-500 w-full md:w-80 shadow-sm">
+                <option value="">-- เลือก Test เพื่อดูกราฟ --</option>
+              </select>
+            </div>
+            <div id="precisionGraphLegend" class="hidden flex flex-wrap items-center gap-4 text-sm font-medium">
+               <div class="flex items-center gap-2"><span class="w-4 h-1 bg-indigo-500 rounded-full"></span> เกณฑ์ควบคุม</div>
+            </div>
+          </div>
+
+          <div class="flex-1 w-full p-4 bg-white/30 rounded-2xl border border-white/50 shadow-inner relative">
+            <canvas id="precisionChartCanvas"></canvas>
+            <div id="precisionChartEmpty" class="absolute inset-0 flex flex-col items-center justify-center text-slate-400 hidden">
+               <i class="fa-solid fa-chart-line text-5xl mb-3 opacity-30"></i>
+               <p>กรุณาเลือกรายการทดสอบด้านบนเพื่อดูกราฟวิเคราะห์แนวโน้ม</p>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ==================== View: Settings (ผู้ดูแลระบบ) ==================== -->
+    <section id="view-settings" class="view-section animate-fade-in hidden">
+      <header class="mb-8">
+        <h1 class="text-3xl font-bold text-slate-800 mb-2">ตั้งค่าระบบ (Settings)</h1>
+        <p class="text-slate-500">ตั้งค่าการเชื่อมต่อฐานข้อมูล Google Sheets หลัก, ฐานข้อมูลแยกแผนก และ Gemini AI API</p>
+      </header>
+      
+      <div class="grid grid-cols-1 xl:grid-cols-12 gap-6 max-w-7xl">
+        
+        <!-- Left Column: Databases (Main + Departments) -->
+        <div class="xl:col-span-8 flex flex-col gap-6">
+          
+          <!-- 1. Main Database Setup -->
+          <div class="glass-card rounded-3xl p-6 md:p-8 border border-white/60 shadow-xl">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 border-b border-slate-100 pb-3">
+              <h3 class="text-lg font-bold text-slate-700 flex items-center gap-2">
+                <i class="fa-brands fa-google-drive text-blue-500"></i> 1. ฐานข้อมูลหลัก (Main Database)
+              </h3>
+              <button type="button" onclick="loadDepartmentsForMapping()" class="text-xs bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-100 px-3 py-1.5 rounded-lg shadow-sm flex items-center gap-1.5 transition-colors">
+                <i class="fa-solid fa-cloud-arrow-down"></i> ดึงรายชื่อแผนก
+              </button>
+            </div>
+            <div class="space-y-2">
+              <label for="settingMainSheetId" class="block text-sm font-medium text-slate-600">Main Sheet ID <span class="text-xs font-normal text-slate-400 ml-2">(ไฟล์หลักที่มี Tab: Users, Units, MetaData)</span></label>
+              <input type="text" id="settingMainSheetId" class="block w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 bg-white/50 backdrop-blur-sm transition-all font-mono" placeholder="วาง Sheet ID ที่นี่...">
+            </div>
+          </div>
+
+          <!-- 2. Department Mapping Setup -->
+          <div class="glass-card rounded-3xl p-6 md:p-8 border border-white/60 shadow-xl flex-1 flex flex-col">
+            <h3 class="text-lg font-bold text-slate-700 mb-4 flex items-center gap-2 border-b border-slate-100 pb-3">
+              <i class="fa-solid fa-network-wired text-brand-500"></i> 2. ฐานข้อมูลแผนก (Department Databases)
+            </h3>
+            <p class="text-xs text-slate-500 mb-4">เชื่อมโยง Sheet ID สำหรับแต่ละแผนก (เก็บข้อมูล EQA, IQC และ Record แยกจากกัน)</p>
+            
+            <!-- Container for Dynamic Inputs -->
+            <div id="deptMappingContainer" class="space-y-3 flex-1 overflow-y-auto max-h-[400px] custom-scrollbar pr-2">
+              <div class="text-center py-8 bg-slate-50/50 rounded-xl border border-slate-200 border-dashed">
+                <i class="fa-solid fa-circle-info text-slate-300 text-2xl mb-2"></i>
+                <p class="text-sm text-slate-500">กรุณาตั้งค่า Main Sheet ID ด้านบน <br>และกด <b>"ดึงรายชื่อแผนก"</b> เพื่อตั้งค่า Sheet ID ย่อย</p>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Right Column: Gemini API Settings -->
+        <div class="xl:col-span-4">
+          <div class="glass-card rounded-3xl p-6 md:p-8 border border-white/60 shadow-xl relative overflow-hidden h-fit sticky top-6">
+            <div class="absolute -right-4 -top-4 text-brand-100 opacity-20 text-9xl pointer-events-none"><i class="fa-solid fa-brain"></i></div>
+            <h3 class="text-lg font-bold text-slate-700 mb-4 flex items-center gap-2 relative z-10 border-b border-slate-100 pb-3">
+              <i class="fa-solid fa-sparkles text-brand-500"></i> Gemini AI Core
+            </h3>
+            <div class="space-y-4 relative z-10">
+              <div>
+                <label for="settingApiKey" class="block text-sm font-medium text-slate-600 mb-1">API Key</label>
+                <div class="relative">
+                  <input type="password" id="settingApiKey" class="block w-full px-4 py-2.5 pr-10 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 bg-white/50 backdrop-blur-sm transition-all font-mono text-sm" placeholder="AIzaSy...">
+                  <button type="button" onclick="togglePassword('settingApiKey', this)" class="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-brand-500">
+                    <i class="fa-solid fa-eye"></i>
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label for="settingModel" class="block text-sm font-medium text-slate-600 mb-1">Gemini Model</label>
+                <select id="settingModel" class="block w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 bg-white/50 backdrop-blur-sm transition-all text-sm font-mono">
+                  <option value="">-- กำลังโหลดโมเดล --</option>
+                </select>
+              </div>
+              
+              <div class="pt-6 mt-4 border-t border-slate-200">
+                <button onclick="saveSettingsForm()" class="w-full bg-gradient-to-r from-slate-800 to-slate-700 hover:from-slate-900 hover:to-slate-800 text-white px-6 py-3.5 rounded-xl font-medium shadow-lg flex items-center justify-center gap-2 transition-all">
+                  <i class="fa-solid fa-floppy-disk"></i> บันทึกการตั้งค่าทั้งหมด
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ==================== Modal ปรับปรุงใหม่: รายการทดสอบทางห้องปฏิบัติการ (ขยายความกว้างเต็มมิติ - z-index ปรับขึ้นเป็น z-[100] ลอยอยู่เหนือ Sidebar) ==================== -->
+  <div id="testItemsModal" class="fixed inset-0 z-[100] hidden flex items-center justify-center p-4 sm:p-6 md:p-8 animate-fade-in">
+    <div class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity" onclick="closeTestItemsModal()"></div>
+    <div class="relative w-full max-w-6xl h-full max-h-[85vh] bg-white/90 backdrop-blur-2xl rounded-[2rem] shadow-2xl border border-white flex flex-col overflow-hidden animate-modal-pop">
+      
+      <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200/60 bg-white/50">
+        <div>
+          <h2 class="text-xl font-bold text-slate-800 flex items-center gap-2.5">
+            <i class="fa-solid fa-list-check text-brand-500"></i> รายการทดสอบทางห้องปฏิบัติการ
+          </h2>
+        </div>
+        <button onclick="closeTestItemsModal()" class="w-8 h-8 rounded-full bg-slate-100 hover:bg-red-100 text-slate-500 hover:text-red-600 flex items-center justify-center transition-colors">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <div class="flex-1 overflow-y-auto p-6 custom-scrollbar">
+        <table class="w-full text-left border-collapse">
+          <thead>
+            <tr class="bg-slate-50 border-b border-slate-200 text-slate-600 text-xs uppercase tracking-wider font-semibold">
+              <th class="py-3 px-4 w-[10%] text-center">No.</th>
+              <th class="py-3 px-4 w-[35%]">Test</th>
+              <th class="py-3 px-4 w-[27.5%]">IQC</th>
+              <th class="py-3 px-4 w-[27.5%]">EQA</th>
+            </tr>
+          </thead>
+          <tbody id="testItemsModalTableBody" class="divide-y divide-slate-100 text-sm">
+            <!-- Dynamic Test Items Render (IQC, IQC Company / EQA, EQA Company) -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== EQA Modal (z-index ปรับขึ้นเป็น z-[100] เพื่อแสดงผลลอยทับ Sidebar) ==================== -->
+  <div id="eqaModal" class="fixed inset-0 z-[100] hidden flex items-center justify-center p-4 sm:p-6 md:p-8 animate-fade-in">
+    <div class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity"></div>
+    
+    <div class="relative w-full max-w-7xl h-full max-h-full bg-white/85 backdrop-blur-2xl rounded-[2rem] shadow-2xl border border-white flex flex-col overflow-hidden animate-modal-pop">
+      <input type="hidden" id="currentTxid" value="">
+
+      <div class="flex items-center justify-between px-6 py-4 md:px-8 md:py-6 border-b border-slate-200/60 bg-white/50">
+        <div>
+          <h2 class="text-2xl font-bold text-slate-800 flex items-center gap-3">
+            <i class="fa-solid fa-file-pen text-brand-500"></i> บันทึกผลประเมิน EQA
+          </h2>
+          <p class="text-sm text-slate-500 mt-1">กรุณากรอกข้อมูลส่วนหัวให้ครบถ้วนก่อน เพื่อเริ่มบันทึกผลหรือใช้วิเคราะห์ด้วย AI</p>
+        </div>
+        <button onclick="closeEQAModal()" class="w-10 h-10 rounded-full bg-slate-100 hover:bg-red-100 text-slate-500 hover:text-red-600 flex items-center justify-center transition-colors" aria-label="Close Modal">
+          <i class="fa-solid fa-xmark text-xl"></i>
+        </button>
+      </div>
+
+      <div class="flex-1 overflow-y-auto p-6 md:p-8 custom-scrollbar">
+        <!-- Section 1: EQA Metadata -->
+        <div class="bg-white/60 rounded-2xl p-6 border border-white shadow-sm mb-6 relative">
+          <h3 class="text-lg font-semibold text-slate-700 mb-4 border-b border-slate-200 pb-2">ข้อมูลรอบการประเมิน</h3>
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+            <div class="space-y-1">
+              <label for="eqaName" class="text-xs font-medium text-slate-500 uppercase tracking-wider">ชื่อ EQA <span class="text-red-500">*</span></label>
+              <select id="eqaName" onchange="handleEQANameChange(); checkEQAHeader();" class="w-full form-input rounded-xl text-sm border-slate-300 focus:border-brand-500 disabled:bg-slate-100 disabled:cursor-not-allowed transition-all">
+                <option value="">-- เลือก EQA --</option>
+              </select>
+            </div>
+            <div class="space-y-1">
+              <label for="eqaYear" class="text-xs font-medium text-slate-500 uppercase tracking-wider">ปี (Year) <span class="text-red-500">*</span></label>
+              <select id="eqaYear" onchange="handleYearChange(); checkEQAHeader();" class="w-full form-input rounded-xl text-sm border-slate-300 focus:border-brand-500 disabled:bg-slate-100 disabled:cursor-not-allowed transition-all font-mono" disabled>
+                <option value="">-- เลือกปี --</option>
+              </select>
+            </div>
+            <div class="space-y-1">
+              <label for="eqaTimes" class="text-xs font-medium text-slate-500 uppercase tracking-wider">Times <span class="text-red-500">*</span></label>
+              <select id="eqaTimes" onchange="checkEQAHeader();" class="w-full form-input rounded-xl text-sm border-slate-300 focus:border-brand-500 disabled:bg-slate-100 disabled:cursor-not-allowed transition-all font-mono">
+                <option value="">-- เลือก --</option>
+              </select>
+            </div>
+            <div class="space-y-1">
+              <label for="eqaLot" class="text-xs font-medium text-slate-500 uppercase tracking-wider">Lot <span class="text-red-500">*</span></label>
+              <select id="eqaLot" onchange="handleLotChange(); checkEQAHeader();" class="w-full form-input rounded-xl text-sm border-slate-300 focus:border-brand-500 disabled:bg-slate-100 disabled:cursor-not-allowed transition-all font-mono" disabled>
+                <option value="">-- เลือก Lot --</option>
+              </select>
+            </div>
+            <div class="space-y-1">
+              <label for="eqaExp" class="text-xs font-medium text-slate-500 uppercase tracking-wider">EXP <span class="text-red-500">*</span></label>
+              <select id="eqaExp" onchange="checkEQAHeader();" class="w-full form-input rounded-xl text-sm border-slate-300 focus:border-brand-500 disabled:bg-slate-100 disabled:cursor-not-allowed transition-all font-mono" disabled>
+                <option value="">-- เลือก EXP --</option>
+              </select>
+            </div>
+            <div class="space-y-1">
+              <label for="recordBy" class="text-xs font-medium text-slate-500 uppercase tracking-wider">ผู้บันทึก <span class="text-red-500">*</span></label>
+              <select id="recordBy" onchange="checkEQAHeader();" class="w-full form-input rounded-xl text-sm border-slate-300 focus:border-brand-500 disabled:bg-slate-100 transition-all">
+                <option value="">-- เลือกผู้บันทึก --</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 2: Mode Selection -->
+        <div id="eqaModeSelection" class="bg-slate-100/50 rounded-2xl p-8 border border-slate-200 border-dashed text-center mb-6 transition-all duration-300">
+          <div id="modeLocker" class="flex flex-col items-center justify-center">
+            <i class="fa-solid fa-lock text-3xl text-slate-300 mb-3"></i>
+            <p class="text-slate-500 text-sm font-medium">กรุณาเลือกข้อมูลส่วนหัวด้านบนให้ครบถ้วน เพื่อปลดล็อกการบันทึกผล</p>
+          </div>
+          
+          <div id="modeButtons" class="hidden flex flex-col md:flex-row justify-center items-center gap-6 animate-fade-in">
+            <p class="text-slate-600 font-medium md:hidden mb-2">เลือกวิธีบันทึกผล:</p>
+            <button onclick="selectEQAMode('AI')" class="group relative w-full md:w-auto overflow-hidden bg-white hover:bg-brand-50 text-brand-700 border-2 border-brand-200 hover:border-brand-400 px-8 py-4 rounded-2xl shadow-sm hover:shadow-md transition-all flex items-center justify-center gap-3">
+              <div class="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-brand-100/50 to-transparent -translate-x-full group-hover:animate-shimmer"></div>
+              <i class="fa-solid fa-wand-magic-sparkles text-2xl text-brand-500 group-hover:scale-110 transition-transform"></i>
+              <div class="text-left">
+                <div class="font-bold text-lg leading-tight">วิเคราะห์ด้วย AI</div>
+                <div class="text-xs opacity-70">อัปโหลด PDF ให้ Gemini ช่วยดึงข้อมูล</div>
+              </div>
+            </button>
+
+            <div class="text-slate-300 font-bold hidden md:block">OR</div>
+
+            <button onclick="selectEQAMode('MANUAL')" class="w-full md:w-auto bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 hover:border-slate-400 px-8 py-4 rounded-2xl shadow-sm hover:shadow-md transition-all flex items-center justify-center gap-3">
+              <i class="fa-regular fa-keyboard text-2xl text-slate-500"></i>
+              <div class="text-left">
+                <div class="font-bold text-lg leading-tight">บันทึกผล Manual</div>
+                <div class="text-xs opacity-70">กรอกข้อมูลผลประเมินด้วยตนเอง</div>
+              </div>
+            </button>
+          </div>
+        </div>
+
+        <!-- Section 3: AI PDF Upload -->
+        <div id="eqaAiUploadSection" class="hidden bg-gradient-to-br from-brand-50 to-blue-50 rounded-2xl p-8 border border-brand-200 shadow-sm mb-6 text-center relative overflow-hidden animate-fade-in">
+          <div class="absolute -right-10 -bottom-10 text-brand-500 opacity-5 pointer-events-none">
+            <i class="fa-solid fa-brain text-[15rem]"></i>
+          </div>
+          <div class="relative z-10 max-w-xl mx-auto">
+            <h3 class="text-xl font-bold text-brand-800 mb-2">อัปโหลดไฟล์ผลประเมิน (PDF)</h3>
+            <p class="text-slate-600 text-sm mb-6">ระบบ AI จะนำไฟล์ PDF ไปบันทึกลง Google Drive ของรอบประเมินนี้ และทำการสกัดข้อมูล Result, Z-Score รวมถึงคำนวณ %Bias ให้อัตโนมัติ</p>
+            
+            <input type="file" id="pdfFileInput" accept="application/pdf" class="hidden" onchange="handleFileSelect(event)">
+            <label for="pdfFileInput" id="dropZone" class="cursor-pointer border-2 border-dashed border-brand-400 hover:border-brand-600 hover:bg-brand-100/50 bg-white rounded-2xl p-8 flex flex-col items-center justify-center transition-all">
+              <i class="fa-regular fa-file-pdf text-5xl text-red-400 mb-3 drop-shadow-sm"></i>
+              <span id="fileNameDisplay" class="font-medium text-slate-700 mb-1">คลิกเพื่อเลือกไฟล์ หรือ ลากไฟล์มาวางที่นี่</span>
+              <span class="text-xs text-slate-500">รองรับเฉพาะไฟล์ .pdf เท่านั้น</span>
+            </label>
+            
+            <div class="mt-6 flex justify-center gap-4">
+              <button onclick="cancelAIMode()" class="px-6 py-2.5 rounded-xl font-medium text-slate-600 bg-white hover:bg-slate-100 border border-slate-300 transition-colors">
+                ยกเลิกการใช้ AI
+              </button>
+              <button id="btnStartAI" onclick="startAIAnalysis()" disabled class="px-8 py-2.5 rounded-xl font-medium text-white bg-slate-300 cursor-not-allowed transition-all flex items-center gap-2">
+                <i class="fa-solid fa-microchip"></i> เริ่มวิเคราะห์ข้อมูล
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 4: Tests Table -->
+        <div id="eqaTableSection" class="hidden bg-white/60 rounded-2xl border border-slate-200 shadow-sm relative min-h-[300px] overflow-hidden animate-fade-in">
+          <!-- Table Loader (ปรับเป็นแบบ Dot Grid Loader ไร้คำอธิบาย) -->
+          <div id="tableLoader" class="absolute inset-0 bg-white/90 backdrop-blur-sm z-10 hidden flex-col items-center justify-center p-6 text-center">
+            <div id="aiAnalyzingDots" class="hidden flex flex-col items-center w-full max-w-md">
+              <div class="dot-grid-loader scale-75">
+                <div></div><div></div><div></div>
+                <div></div><div></div><div></div>
+                <div></div><div></div><div></div>
+              </div>
+              <div class="w-full bg-slate-200 rounded-full h-2.5 mb-2 mt-6 overflow-hidden shadow-inner">
+                <div id="aiProgressBar" class="bg-gradient-to-r from-brand-400 to-blue-500 h-2.5 rounded-full w-0 transition-all duration-700 ease-out"></div>
+              </div>
+            </div>
+            
+            <div id="standardTableSpinner" class="flex flex-col items-center">
+              <div class="dot-grid-loader scale-50">
+                <div></div><div></div><div></div>
+                <div></div><div></div><div></div>
+                <div></div><div></div><div></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="overflow-auto max-h-[50vh] custom-scrollbar">
+            <table class="w-full text-left border-collapse min-w-[1100px]">
+              <thead class="sticky top-0 z-20">
+                <tr class="bg-slate-100/95 backdrop-blur-xl text-slate-700 text-sm shadow-[0_1px_0_0_rgba(203,213,225,1)]">
+                  <th class="py-4 px-4 font-semibold w-2/12">Test Name</th>
+                  <th class="py-4 px-4 font-semibold w-1/12 text-center">Units</th>
+                  <th class="py-4 px-4 font-semibold w-[12.5%]">Result</th>
+                  <th class="py-4 px-4 font-semibold w-[12.5%]">Mean/Target</th>
+                  <th class="py-4 px-4 font-semibold w-1/12">%Bias</th>
+                  <th class="py-4 px-4 font-semibold w-1/12">Z-score</th>
+                  <th class="py-4 px-4 font-semibold w-[12.5%] text-center">ผลประเมิน</th>
+                  <th class="py-4 px-4 font-semibold w-[20.8%]">หมายเหตุ</th>
+                </tr>
+              </thead>
+              <tbody id="testsTableBody" class="divide-y divide-slate-100 text-sm">
+                <!-- EQA Tests Row Inputs -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="modalFooter" class="px-6 py-4 md:px-8 md:py-5 border-t border-slate-200/60 bg-slate-50/50 flex justify-end gap-3 opacity-50 pointer-events-none transition-opacity duration-300">
+        <button onclick="closeEQAModal()" class="px-6 py-2.5 rounded-xl font-medium text-slate-600 bg-white hover:bg-slate-100 border border-slate-300 transition-colors">
+          ยกเลิก
+        </button>
+        <button onclick="submitEQAForm()" id="btnSaveEQA" class="bg-gradient-to-r from-brand-500 to-blue-500 hover:from-brand-600 hover:to-blue-600 text-white px-8 py-2.5 rounded-xl font-medium shadow-md shadow-brand-500/30 flex items-center gap-2 transition-all">
+          <i class="fa-solid fa-check-circle"></i> บันทึกผลประเมิน
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== IQC Modal (z-index ปรับขึ้นเป็น z-[100] เพื่อแสดงผลลอยทับ Sidebar) ==================== -->
+  <div id="iqcModal" class="fixed inset-0 z-[100] hidden flex items-center justify-center p-4 sm:p-6 md:p-8 animate-fade-in">
+    <div class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity"></div>
+    
+    <div class="relative w-full max-w-7xl h-full max-h-full bg-white/85 backdrop-blur-2xl rounded-[2rem] shadow-2xl border border-white flex flex-col overflow-hidden animate-modal-pop">
+      
+      <!-- Header -->
+      <div class="flex items-center justify-between px-6 py-4 md:px-8 md:py-6 border-b border-slate-200/60 bg-white/50">
+        <div>
+          <h2 class="text-2xl font-bold text-slate-800 flex items-center gap-3">
+            <i class="fa-solid fa-clipboard-list text-blue-500"></i> บันทึกผลประเมิน IQC (รายเดือน)
+          </h2>
+          <p class="text-sm text-slate-500 mt-1">กรุณากรอกข้อมูลส่วนหัวให้ครบถ้วนก่อน เพื่อเริ่มบันทึกผลการควบคุมคุณภาพภายใน</p>
+        </div>
+        <button onclick="closeIQCModal()" class="w-10 h-10 rounded-full bg-slate-100 hover:bg-red-100 text-slate-500 hover:text-red-600 flex items-center justify-center transition-colors" aria-label="Close Modal">
+          <i class="fa-solid fa-xmark text-xl"></i>
+        </button>
+      </div>
+
+      <div class="flex-1 overflow-y-auto p-6 md:p-8 custom-scrollbar">
+        <!-- Section 1: IQC Metadata -->
+        <div class="bg-white/60 rounded-2xl p-6 border border-white shadow-sm mb-6 relative">
+          <h3 class="text-lg font-semibold text-slate-700 mb-4 border-b border-slate-200 pb-2">ข้อมูลประจำเดือน</h3>
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+            <div class="space-y-1">
+              <label for="iqcMonth" class="text-xs font-medium text-slate-500 uppercase tracking-wider">เดือน <span class="text-red-500">*</span></label>
+              <select id="iqcMonth" onchange="checkIQCHeader();" class="w-full form-input rounded-xl text-sm border-slate-300 focus:border-blue-500 transition-all">
+                <option value="">-- เลือกเดือน --</option>
+                <option value="1">มกราคม (1)</option>
+                <option value="2">กุมภาพันธ์ (2)</option>
+                <option value="3">มีนาคม (3)</option>
+                <option value="4">เมษายน (4)</option>
+                <option value="5">พฤษภาคม (5)</option>
+                <option value="6">มิถุนายน (6)</option>
+                <option value="7">กรกฎาคม (7)</option>
+                <option value="8">สิงหาคม (8)</option>
+                <option value="9">กันยายน (9)</option>
+                <option value="10">ตุลาคม (10)</option>
+                <option value="11">พฤศจิกายน (11)</option>
+                <option value="12">ธันวาคม (12)</option>
+              </select>
+            </div>
+            <div class="space-y-1">
+              <label for="iqcYear" class="text-xs font-medium text-slate-500 uppercase tracking-wider">ปี (Year) <span class="text-red-500">*</span></label>
+              <select id="iqcYear" onchange="checkIQCHeader();" class="w-full form-input rounded-xl text-sm border-slate-300 focus:border-blue-500 transition-all font-mono">
+                <option value="">-- เลือกปี --</option>
+              </select>
+            </div>
+            <div class="space-y-1">
+              <label for="iqcName" class="text-xs font-medium text-slate-500 uppercase tracking-wider">ชื่อ IQC <span class="text-red-500">*</span></label>
+              <select id="iqcName" onchange="handleIQCNameChange(); checkIQCHeader();" class="w-full form-input rounded-xl text-sm border-slate-300 focus:border-blue-500 disabled:bg-slate-100 transition-all">
+                <option value="">-- เลือก IQC --</option>
+              </select>
+            </div>
+            <div class="space-y-1">
+              <label for="iqcLot" class="text-xs font-medium text-slate-500 uppercase tracking-wider">Lot <span class="text-red-500">*</span></label>
+              <select id="iqcLot" onchange="handleIQCLotChange(); checkIQCHeader();" class="w-full form-input rounded-xl text-sm border-slate-300 focus:border-blue-500 disabled:bg-slate-100 disabled:cursor-not-allowed transition-all font-mono" disabled>
+                <option value="">-- เลือก Lot --</option>
+              </select>
+            </div>
+            <div class="space-y-1">
+              <label for="iqcExp" class="text-xs font-medium text-slate-500 uppercase tracking-wider">EXP <span class="text-red-500">*</span></label>
+              <select id="iqcExp" onchange="checkIQCHeader();" class="w-full form-input rounded-xl text-sm border-slate-300 focus:border-blue-500 disabled:bg-slate-100 disabled:cursor-not-allowed transition-all font-mono" disabled>
+                <option value="">-- เลือก EXP --</option>
+              </select>
+            </div>
+            <div class="space-y-1">
+              <label for="iqcRecordBy" class="text-xs font-medium text-slate-500 uppercase tracking-wider">ผู้บันทึก <span class="text-red-500">*</span></label>
+              <select id="iqcRecordBy" onchange="checkIQCHeader();" class="w-full form-input rounded-xl text-sm border-slate-300 focus:border-blue-500 disabled:bg-slate-100 transition-all">
+                <option value="">-- เลือกผู้บันทึก --</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 2: Mode Selection IQC -->
+        <div id="iqcModeSelection" class="bg-slate-100/50 rounded-2xl p-8 border border-slate-200 border-dashed text-center mb-6 transition-all duration-300">
+          <div id="iqcModeLocker" class="flex flex-col items-center justify-center">
+            <i class="fa-solid fa-lock text-3xl text-slate-300 mb-3"></i>
+            <p class="text-slate-500 text-sm font-medium">กรุณาเลือกข้อมูลส่วนหัวด้านบนให้ครบถ้วน เพื่อปลดล็อกการบันทึกผล IQC</p>
+          </div>
+          
+          <div id="iqcModeButtons" class="hidden flex flex-col md:flex-row justify-center items-center gap-6 animate-fade-in">
+            <p class="text-slate-600 font-medium md:hidden mb-2">เลือกวิธีบันทึกผล:</p>
+            <button onclick="selectIQCMode('AI')" class="group relative w-full md:w-auto overflow-hidden bg-white hover:bg-blue-50 text-blue-700 border-2 border-blue-200 hover:border-blue-400 px-8 py-4 rounded-2xl shadow-sm hover:shadow-md transition-all flex items-center justify-center gap-3">
+              <div class="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-blue-100/50 to-transparent -translate-x-full group-hover:animate-shimmer"></div>
+              <i class="fa-solid fa-wand-magic-sparkles text-2xl text-blue-500 group-hover:scale-110 transition-transform"></i>
+              <div class="text-left">
+                <div class="font-bold text-lg leading-tight">วิเคราะห์ด้วย AI</div>
+                <div class="text-xs opacity-70">อัปโหลด PDF สรุปผล IQC รายเดือนให้ Gemini ช่วยดึงข้อมูล</div>
+              </div>
+            </button>
+
+            <div class="text-slate-300 font-bold hidden md:block">OR</div>
+
+            <button onclick="selectIQCMode('MANUAL')" class="w-full md:w-auto bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 hover:border-slate-400 px-8 py-4 rounded-2xl shadow-sm hover:shadow-md transition-all flex items-center justify-center gap-3">
+              <i class="fa-regular fa-keyboard text-2xl text-slate-500"></i>
+              <div class="text-left">
+                <div class="font-bold text-lg leading-tight">บันทึกผล Manual</div>
+                <div class="text-xs opacity-70">กรอกข้อมูลผลประเมินด้วยตนเองทีละรายการ</div>
+              </div>
+            </button>
+          </div>
+        </div>
+
+        <!-- Section 3: AI PDF Upload IQC -->
+        <div id="iqcAiUploadSection" class="hidden bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl p-8 border border-blue-200 shadow-sm mb-6 text-center relative overflow-hidden animate-fade-in">
+          <div class="absolute -right-10 -bottom-10 text-blue-500 opacity-5 pointer-events-none">
+            <i class="fa-solid fa-brain text-[15rem]"></i>
+          </div>
+          <div class="relative z-10 max-w-xl mx-auto">
+            <h3 class="text-xl font-bold text-blue-800 mb-2">อัปโหลดไฟล์สรุปผล IQC (PDF)</h3>
+            <p class="text-slate-600 text-sm mb-6">ระบบ AI จะนำไฟล์ PDF ไปสกัดข้อมูล Mean, SD, และ %CV ในแต่ละ Level ให้อัตโนมัติ (ขึ้นอยู่กับรายการทดสอบที่ผูกไว้)</p>
+            
+            <input type="file" id="iqcPdfFileInput" accept="application/pdf" class="hidden" onchange="handleIQCFileSelect(event)">
+            <label for="iqcPdfFileInput" id="iqcDropZone" class="cursor-pointer border-2 border-dashed border-blue-400 hover:border-blue-600 hover:bg-blue-100/50 bg-white rounded-2xl p-8 flex flex-col items-center justify-center transition-all">
+              <i class="fa-regular fa-file-pdf text-5xl text-red-400 mb-3 drop-shadow-sm"></i>
+              <span id="iqcFileNameDisplay" class="font-medium text-slate-700 mb-1">คลิกเพื่อเลือกไฟล์ หรือ ลากไฟล์มาวางที่นี่</span>
+              <span class="text-xs text-slate-500">รองรับเฉพาะไฟล์ .pdf เท่านั้น</span>
+            </label>
+            
+            <div class="mt-6 flex justify-center gap-4">
+              <button onclick="cancelIQCAIMode()" class="px-6 py-2.5 rounded-xl font-medium text-slate-600 bg-white hover:bg-slate-100 border border-slate-300 transition-colors">
+                ยกเลิกการใช้ AI
+              </button>
+              <button id="btnStartIQCAI" onclick="startIQCAIAnalysis()" disabled class="px-8 py-2.5 rounded-xl font-medium text-white bg-slate-300 cursor-not-allowed transition-all flex items-center gap-2">
+                <i class="fa-solid fa-microchip"></i> เริ่มวิเคราะห์ข้อมูล
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 4: Tests Table (IQC) -->
+        <div id="iqcTableSection" class="hidden bg-white/60 rounded-2xl border border-slate-200 shadow-sm relative min-h-[300px] overflow-hidden animate-fade-in">
+          <!-- IQC Table Loader (เปลี่ยนเป็น Dot Grid Loader ไร้ข้อความ) -->
+          <div id="iqcTableLoader" class="absolute inset-0 bg-white/90 backdrop-blur-sm z-10 hidden flex-col items-center justify-center p-6 text-center">
+            <div id="iqcAiAnalyzingDots" class="hidden flex flex-col items-center w-full max-w-md">
+              <div class="dot-grid-loader scale-75">
+                <div></div><div></div><div></div>
+                <div></div><div></div><div></div>
+                <div></div><div></div><div></div>
+              </div>
+              <div class="w-full bg-slate-200 rounded-full h-2.5 mb-2 mt-6 overflow-hidden shadow-inner">
+                <div id="iqcAiProgressBar" class="bg-gradient-to-r from-blue-400 to-indigo-500 h-2.5 rounded-full w-0 transition-all duration-700 ease-out"></div>
+              </div>
+            </div>
+            
+            <div id="iqcStandardTableSpinner" class="flex flex-col items-center">
+              <div class="dot-grid-loader scale-50">
+                <div></div><div></div><div></div>
+                <div></div><div></div><div></div>
+                <div></div><div></div><div></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="overflow-auto max-h-[50vh] custom-scrollbar">
+            <table class="w-full text-left border-collapse min-w-[900px]">
+              <thead id="iqcTableHeader" class="sticky top-0 z-20 bg-slate-100/95 backdrop-blur-xl text-slate-700 text-sm shadow-[0_1px_0_0_rgba(203,213,225,1)]">
+                <!-- หัวตารางจะถูกสร้างโดย JavaScript ตามจำนวน Level และระบายสีแยกหัวอย่างงดงาม -->
+              </thead>
+              <tbody id="iqcTestsTableBody" class="divide-y divide-slate-100 text-sm">
+                <!-- Data Input Row IQC -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="iqcModalFooter" class="px-6 py-4 md:px-8 md:py-5 border-t border-slate-200/60 bg-slate-50/50 flex justify-end gap-3 opacity-50 pointer-events-none transition-opacity duration-300">
+        <button onclick="closeIQCModal()" class="px-6 py-2.5 rounded-xl font-medium text-slate-600 bg-white hover:bg-slate-100 border border-slate-300 transition-colors">
+          ยกเลิก
+        </button>
+        <button onclick="submitIQCForm()" id="btnSaveIQC" class="bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 text-white px-8 py-2.5 rounded-xl font-medium shadow-md shadow-blue-500/30 flex items-center gap-2 transition-all">
+          <i class="fa-solid fa-check-circle"></i> บันทึกผลประเมิน
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Input รับไฟล์ PDF สำรอง -->
+  <input type="file" id="certFileInput" accept="application/pdf" class="hidden" onchange="handleCertFileSelect(event)">
+  <input type="file" id="fmFileInput" accept="application/pdf" class="hidden" onchange="handleFmFileSelect(event)">
+
+  <!-- นำเข้าไฟล์ JS -->
+  <?!= include('js'); ?>
+</body>
+</html>
