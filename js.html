@@ -1,0 +1,3426 @@
+<style>
+  /* นำปุ่มลูกศรขึ้น-ลง (Spinner) ออกจากช่องกรอกตัวเลข */
+  input[type=number]::-webkit-inner-spin-button, 
+  input[type=number]::-webkit-outer-spin-button { 
+    -webkit-appearance: none; 
+    margin: 0; 
+  }
+  input[type=number] {
+    -moz-appearance: textfield; /* สำหรับ Firefox */
+  }
+  
+  /* แอนิเมชันสำหรับ Accordion */
+  .accordion-content {
+    transition: max-height 0.4s ease-in-out, opacity 0.4s ease-in-out;
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+  }
+  .accordion-content.expanded {
+    max-height: 1000px; /* ค่าเผื่อไว้สำหรับการขยาย */
+    opacity: 1;
+  }
+</style>
+
+<script>
+  /**
+   * Quality Assessment Manager - AI Core v0.1.6
+   * Frontend Script (JavaScript) - Refactored Best Practices Edition
+   * พัฒนาอย่างละเอียด แม่นยำตามหลัก cyber security และมาตรฐานห้องปฏิบัติการ
+   * รองรับ Multi-Department Database Architecture & Real-time Dashboard Analytics
+   */
+
+  // ==========================================
+  // 1. Global State Management
+  // ==========================================
+  const state = {
+    // System State
+    currentDeptName: '',  // แผนกที่กำลังเลือกใช้งาน
+    tempDeptSheets: {},   // ข้อมูล Mapping Sheet ID ชั่วคราว (ใช้ในหน้า Settings)
+    chartDisplayMode: 'ALL', // โหมดการแสดงผลของกราฟแดชบอร์ดหลัก (ALL, IQC, EQA)
+    
+    // Core Data
+    users: [],
+    eqaMaster: [], 
+    iqcMaster: [],
+    currentTests: [], 
+    dashboardData: [],    // เก็บข้อมูลบันทึก EQA ทั้งหมดของแผนก
+    dashboardStats: null, // เก็บข้อมูลสถิติที่ประมวลผลสำหรับ Dashboard
+    monitoringData: null, 
+    accuracyChart: null,  
+    precisionChart: null, 
+    dashboardChart: null, // ออบเจ็กต์กราฟหน้า Dashboard หลัก
+    
+    // EQA State
+    aiFile: null,      
+    aiBase64: null,    
+    currentFileUrl: '',
+    uploadingCertInfo: null, 
+    uploadingFmInfo: null,
+    
+    // IQC State
+    iqcAiFile: null,
+    iqcAiBase64: null,
+    currentIqcLevels: 1,      
+    currentIqcLevelFilter: 1, 
+    currentPreLevelFilter: 1  
+  };
+
+  // ==========================================
+  // 2. Initialization & Lifecycle
+  // ==========================================
+  window.addEventListener('DOMContentLoaded', () => {
+    // โหลดหน้าแรกเริ่มเป็นหน้า Dashboard เสมอตามเงื่อนไขข้อ 1
+    switchView('dashboard');
+    initApp();
+    
+    document.getElementById('toggleSidebar').addEventListener('click', () => {
+      document.getElementById('sidebar').classList.toggle('sidebar-collapsed');
+    });
+
+    // กำหนดการลากและวางด้วย Dynamic Helper ฟังก์ชันกลางเพื่อความกระชับ
+    initDragAndDropHelper('dropZone', 'pdfFileInput', processSelectedFile, ['border-brand-600', 'bg-brand-100/50']);
+    initDragAndDropHelper('iqcDropZone', 'iqcPdfFileInput', processIQCSelectedFile, ['border-blue-600', 'bg-blue-100/50']);
+    
+    setupYearDropdowns();
+  });
+
+  // ฟังก์ชันล้างสตริงและจัดปีให้อยゅうในรูปแบบที่ถูกต้องเพื่อป้องกันบัก
+  function normalizeYear(y) {
+    if (!y) return '';
+    const parsed = parseInt(y, 10);
+    return isNaN(parsed) ? String(y).trim() : String(parsed);
+  }
+
+  // ลำดับการโหลด 1: โหลดแผนกที่มีอยู่ก่อน (ปรับเปลี่ยนข้อความต้อนรับตามเงื่อนไข v0.1.6)
+  function initApp() {
+    google.script.run
+      .withSuccessHandler(res => {
+        if (res.success && res.data.length > 0) {
+          const select = document.getElementById('globalDepartmentSelect');
+          select.innerHTML = '<option value="">-- เลือกแผนก --</option>';
+          res.data.forEach(dept => {
+            select.insertAdjacentHTML('beforeend', `<option value="${dept}">${dept}</option>`);
+          });
+          
+          hideGlobalLoader();
+          
+          Swal.fire({
+            icon: 'info',
+            title: 'ยินดีต้อนรับเข้าสู่ระบบ EQA/IQC',
+            text: 'กรุณาเลือกแผนกห้องปฏิบัติการจากเมนูด้านซ้าย',
+            confirmButtonColor: '#14b8a6',
+            allowOutsideClick: false,
+            customClass: { popup: 'rounded-3xl', icon: 'custom-swal-icon' }
+          }).then(() => {
+            // ระบบตรวจสอบและหรี่หน้าจอ (Dim Screen) ตามเงื่อนไขข้อ 2
+            checkWelcomeAndShowOverlay();
+          });
+        } else {
+          document.getElementById('globalDepartmentSelect').innerHTML = '<option value="">-- ยังไม่ได้ตั้งค่าฐานข้อมูล --</option>';
+          hideGlobalLoader();
+          Swal.fire({
+            icon: 'warning',
+            title: 'ยังไม่ได้ตั้งค่าระบบ',
+            text: 'กรุณาเข้าสู่โหมดผู้ดูแลระบบ (Dev Mode) เพื่อทำการกำหนดฐานข้อมูลระบบก่อนครับ',
+            confirmButtonColor: '#14b8a6',
+            customClass: { popup: 'rounded-3xl', icon: 'custom-swal-icon' }
+          });
+        }
+      })
+      .withFailureHandler(err => {
+        hideGlobalLoader();
+        showError('โหลดรายชื่อแผนกล้มเหลว', err.message);
+      })
+      .getAvailableDepartments();
+  }
+
+  // ระบบตรวจสอบและกางแผ่นหรี่หน้าจอเพื่อนำสายตาบังคับเลือกแผนก (ข้อ 2)
+  function checkWelcomeAndShowOverlay() {
+    const overlay = document.getElementById('deptOverlay');
+    const deptContainer = document.getElementById('deptSelectContainer');
+    const deptSelect = document.getElementById('globalDepartmentSelect');
+    
+    if (!state.currentDeptName) {
+      overlay.classList.remove('hidden');
+      deptContainer.style.zIndex = '90';
+      deptContainer.classList.add('bg-white', 'rounded-2xl', 'p-4', 'shadow-2xl', 'border', 'border-teal-300');
+      deptSelect.classList.add('ring-4', 'ring-teal-400', 'animate-pulse');
+      
+      // ล็อคปุ่มนำทางใน Sidebar ชั่วคราวเพื่อความปลอดภัย
+      document.querySelectorAll('nav button').forEach(btn => {
+        btn.disabled = true;
+        btn.style.opacity = '0.5';
+        btn.style.cursor = 'not-allowed';
+      });
+    } else {
+      overlay.classList.add('hidden');
+      deptContainer.style.zIndex = '';
+      deptContainer.className = 'px-4 py-3 border-b border-white/50 bg-white/20 shrink-0 transition-all duration-300 relative';
+      deptSelect.classList.remove('ring-4', 'ring-teal-400', 'animate-pulse');
+      
+      // ปลดล็อคปุ่มนำทาง
+      document.querySelectorAll('nav button').forEach(btn => {
+        btn.disabled = false;
+        btn.style.opacity = '';
+        btn.style.cursor = '';
+      });
+    }
+  }
+
+  // ลำดับการโหลด 2: เมื่อเลือกแผนก จะเรียกโหลด Dependency 
+  function handleDepartmentSelect() {
+    const select = document.getElementById('globalDepartmentSelect');
+    state.currentDeptName = select.value;
+    
+    if (!state.currentDeptName) {
+       clearAllDashboards();
+       checkWelcomeAndShowOverlay();
+       return;
+    }
+    
+    // ล้าง overlay และการชี้นำเมื่อเลือกแผนกเสร็จสมบูรณ์
+    checkWelcomeAndShowOverlay();
+    refreshData(true); // โหลดข้อมูลใหม่ทั้งหมดของแผนกที่เลือก
+  }
+
+  function checkDeptSelected() {
+    if (!state.currentDeptName) {
+      Swal.fire({
+        icon: 'warning',
+        title: 'ยังไม่ได้เลือกแผนกปฏิบัติงาน',
+        text: 'กรุณาเลือกกลุ่มงาน/แผนกที่ปฏิบัติงานที่แถบ Sidebar ด้านซ้ายก่อนทำรายการครับ',
+        confirmButtonColor: '#14b8a6',
+        customClass: { popup: 'rounded-3xl', icon: 'custom-swal-icon' }
+      });
+      return false;
+    }
+    return true;
+  }
+
+  function clearAllDashboards() {
+    state.dashboardData = [];
+    state.monitoringData = null;
+    state.dashboardStats = null;
+    document.getElementById('dashboardTableBody').innerHTML = '';
+    const emptyState = document.getElementById('dashboardEmptyState');
+    if (emptyState) {
+      emptyState.classList.remove('hidden');
+      emptyState.classList.add('flex');
+      document.getElementById('dashboardEmptyTitle').textContent = 'กรุณาเลือกแผนกปฏิบัติงานก่อนนะครับ';
+      document.getElementById('dashboardEmptyDesc').textContent = 'เลือกแผนกห้องปฏิบัติการของคุณเพื่อเริ่มวิเคราะห์ระบบประกันคุณภาพทางวิทยาศาสตร์';
+    }
+  }
+
+  function hideGlobalLoader() {
+    const loader = document.getElementById('globalLoader');
+    if(loader) {
+       loader.style.opacity = '0';
+       setTimeout(() => loader.style.display = 'none', 300);
+    }
+  }
+
+  // ==========================================
+  // 3. Navigation & Views & Dev Mode
+  // ==========================================
+  function switchView(viewId) {
+    document.querySelectorAll('.view-section').forEach(el => {
+      el.classList.add('hidden');
+      el.classList.remove('block');
+    });
+
+    document.querySelectorAll('.nav-item').forEach(el => {
+      el.classList.remove('bg-white/60', 'shadow-sm', 'border', 'border-white', 'text-brand-700', 'text-blue-700');
+      if (el.id !== 'btnEnterDev' && !el.closest('#monitoringSubMenu')) {
+        el.classList.add('text-slate-500', 'hover:bg-white/40');
+      } else if (el.closest('#monitoringSubMenu')) {
+        el.classList.remove('bg-white/60', 'text-brand-600', 'text-blue-600');
+      }
+    });
+
+    const targetView = document.getElementById(`view-${viewId}`);
+    if (targetView) {
+      targetView.classList.remove('hidden');
+      targetView.classList.add('block');
+    }
+
+    const targetNav = document.getElementById(`nav-${viewId}`);
+    if (targetNav) {
+      const activeColorText = viewId === 'iqc' ? 'text-blue-700' : 'text-brand-700';
+      const activeHoverText = viewId === 'iqc' ? 'text-blue-600' : 'text-brand-600';
+      
+      if (targetNav.closest('#monitoringSubMenu')) {
+        targetNav.classList.add('bg-white/60', activeHoverText);
+      } else {
+        targetNav.classList.add('bg-white/60', 'shadow-sm', 'border', 'border-white', activeColorText);
+        targetNav.classList.remove('text-slate-500', 'hover:bg-white/40');
+      }
+    }
+
+    const navMonitoring = document.getElementById('nav-monitoring-parent');
+    if (navMonitoring) {
+      if (['accuracy', 'precision'].includes(viewId)) {
+        navMonitoring.classList.add('bg-white/60', 'shadow-sm', 'border', 'border-white', 'text-brand-700');
+        navMonitoring.classList.remove('text-slate-500', 'hover:bg-white/40');
+      } else {
+        navMonitoring.classList.remove('bg-white/60', 'shadow-sm', 'border', 'border-white', 'text-brand-700');
+        navMonitoring.classList.add('text-slate-500', 'hover:bg-white/40');
+      }
+    }
+
+    if (viewId === 'settings') return;
+
+    if (!state.currentDeptName) {
+       clearAllDashboards();
+       return;
+    }
+
+    if (viewId === 'dashboard') {
+      loadDashboardStats();
+    } else if (viewId === 'eqa') {
+      document.getElementById('searchDashboard').value = '';
+      loadDashboard();
+    } else if (['accuracy', 'iqc', 'precision'].includes(viewId)) {
+      loadMonitoringData();
+      
+      setTimeout(() => {
+        if (viewId === 'accuracy' && !document.getElementById('accuracyGraphMode').classList.contains('hidden')) {
+          renderAccuracyGraph();
+        }
+        if (viewId === 'precision' && !document.getElementById('precisionGraphMode').classList.contains('hidden')) {
+          renderPrecisionGraph();
+        }
+      }, 150);
+    }
+  }
+
+  function toggleMonitoringMenu() {
+    const subMenu = document.getElementById('monitoringSubMenu');
+    const chevron = document.getElementById('monitoringChevron');
+    const isHidden = subMenu.classList.contains('hidden');
+    
+    subMenu.classList.toggle('hidden', !isHidden);
+    subMenu.classList.toggle('flex', isHidden);
+    chevron.classList.toggle('rotate-180', isHidden);
+  }
+
+  function promptSettings() {
+    Swal.fire({
+      title: '<span class="text-slate-800 text-xl font-bold">สิทธิ์การเข้าถึงโหมดควบคุม</span>',
+      html: '<p class="text-sm text-slate-500 mb-4">ระบบป้องกันความปลอดภัยระดับโรงพยาบาล <br>กรุณาระบุรหัสผ่านผู้ดูแลระบบ</p>',
+      input: 'password',
+      inputPlaceholder: 'รหัสผ่าน',
+      icon: 'lock',
+      iconColor: '#14b8a6',
+      showCancelButton: true,
+      confirmButtonText: 'เข้าสู่ระบบ',
+      cancelButtonText: 'ยกเลิก',
+      confirmButtonColor: '#14b8a6',
+      customClass: {
+        popup: 'rounded-3xl',
+        input: 'rounded-xl border-slate-200 focus:ring-brand-500 focus:border-brand-500',
+        icon: 'custom-swal-icon'
+      },
+      preConfirm: (password) => {
+        if (!password) Swal.showValidationMessage('กรุณาใส่รหัสผ่าน');
+        return password;
+      }
+    }).then((result) => {
+      if (result.isConfirmed) {
+        Swal.fire({ title: 'กำลังตรวจสอบความถูกต้องสิทธิ์...', allowOutsideClick: false, didOpen: () => Swal.showLoading(), customClass: { popup: 'rounded-3xl', icon: 'custom-swal-icon' } });
+        google.script.run
+          .withSuccessHandler(isValid => {
+            if (isValid) {
+              Swal.close();
+              document.getElementById('btnEnterDev').classList.add('hidden');
+              const devSection = document.getElementById('devModeSection');
+              devSection.classList.remove('hidden');
+              devSection.classList.add('flex');
+              
+              switchView('settings');
+              loadSettings();
+            } else {
+              Swal.fire({ icon: 'error', title: 'รหัสผ่านไม่ถูกต้อง', text: 'ปฏิเสธการเข้าถึงเนื่องจากสิทธิ์ไม่ได้รับอนุญาต', confirmButtonColor: '#14b8a6', customClass: { popup: 'rounded-3xl', icon: 'custom-swal-icon' } });
+            }
+          })
+          .verifySettingsPassword(result.value);
+      }
+    });
+  }
+
+  function exitDevMode() {
+    document.getElementById('devModeSection').classList.add('hidden');
+    document.getElementById('devModeSection').classList.remove('flex');
+    document.getElementById('btnEnterDev').classList.remove('hidden');
+    switchView('dashboard');
+    Swal.fire({
+      toast: true, position: 'top-end', icon: 'success', title: 'ออกจากโหมดผู้ดูแลระบบเรียบร้อย',
+      showConfirmButton: false, timer: 3000, timerProgressBar: true, customClass: { icon: 'custom-swal-icon' }
+    });
+  }
+
+  function refreshData(isChangingDept = false) {
+    if (!checkDeptSelected()) return;
+
+    Swal.fire({
+      title: isChangingDept ? 'กำลังประมวลผลฐานข้อมูลแยกแผนก...' : 'กำลังดึงฐานข้อมูลล่าสุด...',
+      allowOutsideClick: false,
+      didOpen: () => Swal.showLoading(),
+      customClass: { popup: 'rounded-3xl', icon: 'custom-swal-icon' }
+    });
+    
+    state.monitoringData = null; 
+    
+    google.script.run
+      .withSuccessHandler((res) => {
+        if (res.success) {
+          state.users = res.users;
+          state.eqaMaster = res.eqaData;
+          state.iqcMaster = res.iqcData || [];
+          
+          populateInitialDropdowns();
+          
+          const activeView = document.querySelector('.view-section:not(.hidden)').id;
+          
+          if (activeView === 'view-dashboard') {
+            loadDashboardStats();
+          } else if (activeView === 'view-eqa') {
+            loadDashboard();
+          } else if (['view-iqc', 'view-accuracy', 'view-precision'].includes(activeView)) {
+            loadMonitoringData();
+          } else {
+            Swal.close();
+          }
+          
+          if(!isChangingDept) {
+            Swal.fire({
+              toast: true, position: 'top-end', icon: 'success', title: 'ฐานข้อมูลอัปเดตตรงกันเรียบร้อย',
+              showConfirmButton: false, timer: 2000, timerProgressBar: true, customClass: { icon: 'custom-swal-icon' }
+            });
+          } else {
+            Swal.close();
+          }
+        } else {
+          showError('โหลดข้อมูลล้มเหลว', res.message);
+        }
+      })
+      .withFailureHandler((err) => {
+        showError('ข้อผิดพลาดเครือข่าย', err.message);
+      })
+      .getFormDependencies(state.currentDeptName); 
+  }
+
+  // ==========================================
+  // 4. Settings & API Management
+  // ==========================================
+  function togglePassword(inputId, btn) {
+    const input = document.getElementById(inputId);
+    const icon = btn.querySelector('i');
+    const isPassword = input.type === 'password';
+    input.type = isPassword ? 'text' : 'password';
+    icon.classList.toggle('fa-eye', !isPassword);
+    icon.classList.toggle('fa-eye-slash', isPassword);
+  }
+
+  function loadSettings() {
+    Swal.fire({ title: 'กำลังเรียกข้อมูลการตั้งค่า...', allowOutsideClick: false, didOpen: () => Swal.showLoading(), customClass: { popup: 'rounded-3xl', icon: 'custom-swal-icon' } });
+    
+    google.script.run
+      .withSuccessHandler(res => {
+        document.getElementById('settingMainSheetId').value = res.mainSheetId || '';
+        document.getElementById('settingApiKey').value = res.apiKey || '';
+        state.tempDeptSheets = res.deptSheets || {}; 
+        
+        google.script.run
+          .withSuccessHandler(modelsRes => {
+            Swal.close();
+            if (modelsRes.success) {
+              updateSelectOptions('settingModel', modelsRes.data, '-- เลือกโมเดล Gemini --');
+              document.getElementById('settingModel').value = res.model || '';
+            }
+          })
+          .getGeminiModels();
+      })
+      .getSettings();
+  }
+
+  function loadDepartmentsForMapping() {
+    const mainSheetId = document.getElementById('settingMainSheetId').value.trim();
+    if (!mainSheetId) {
+       return showError('ข้อมูลไม่ครบถ้วน', 'กรุณาระบุ Main Sheet ID ก่อนทำการประมวลผลเพื่อความปลอดภัย');
+    }
+
+    Swal.fire({ title: 'กำลังวิเคราะห์สถาปัตยกรรมโครงข่ายสเปรดชีต...', text:'อ่านแผนกปฏิบัติงานทั้งหมดที่กำหนดในระบบฐานหลัก', allowOutsideClick: false, didOpen: () => Swal.showLoading(), customClass: { popup: 'rounded-3xl', icon: 'custom-swal-icon' } });
+    
+    google.script.run
+      .withSuccessHandler(res => {
+          if(!res.success) return showError('ข้อผิดพลาด', 'ไม่สามารถเข้าถึงฐานข้อมูลหลักได้');
+          
+          google.script.run
+            .withSuccessHandler(unitsRes => {
+               Swal.close();
+               if(unitsRes.success) {
+                  renderDepartmentMappingInputs(unitsRes.data);
+                  Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: `สแกนแผนกปฏิบัติงานเรียบร้อย (${unitsRes.data.length} แผนก)`, showConfirmButton: false, timer: 3000, customClass: { icon: 'custom-swal-icon' }});
+               } else {
+                  showError('ดึงข้อมูลล้มเหลว', unitsRes.message);
+               }
+            })
+            .withFailureHandler(err => showError('ข้อผิดพลาดเครือข่าย', err.message))
+            .getUnitsList();
+      })
+      .saveSettings({ mainSheetId: mainSheetId }); 
+  }
+
+  function renderDepartmentMappingInputs(unitsArray) {
+    const container = document.getElementById('deptMappingContainer');
+    container.innerHTML = '';
+    
+    if(!unitsArray || unitsArray.length === 0) {
+       container.innerHTML = `
+        <div class="text-center py-8 bg-slate-50/50 rounded-xl border border-slate-200 border-dashed">
+          <i class="fa-solid fa-folder-open text-slate-300 text-2xl mb-2"></i>
+          <p class="text-sm text-slate-500">ไม่พบรายชื่อแผนกปฏิบัติงานในฐานข้อมูล</p>
+        </div>`;
+       return;
+    }
+
+    unitsArray.forEach(unit => {
+        const val = state.tempDeptSheets[unit] || '';
+        const html = `
+          <div class="bg-white/80 p-3 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center gap-3 animate-fade-in">
+            <div class="md:w-1/3 flex items-center gap-2 text-slate-700 font-medium text-sm">
+               <i class="fa-solid fa-microscope text-brand-500 opacity-70"></i> ${unit}
+            </div>
+            <div class="md:w-2/3">
+               <input type="text" data-dept="${unit}" class="dept-mapping-input block w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-all font-mono placeholder:font-sans" placeholder="ระบุ Google Sheet ID เฉพาะแผนกนี้..." value="${val}">
+            </div>
+          </div>
+        `;
+        container.insertAdjacentHTML('beforeend', html);
+    });
+  }
+
+  function saveSettingsForm() {
+    const deptInputs = document.querySelectorAll('.dept-mapping-input');
+    const newDeptSheets = {};
+    deptInputs.forEach(input => {
+        const val = input.value.trim();
+        const dept = input.getAttribute('data-dept');
+        if (dept && val) {
+            newDeptSheets[dept] = val;
+        }
+    });
+
+    const payload = {
+      mainSheetId: document.getElementById('settingMainSheetId').value.trim(),
+      apiKey: document.getElementById('settingApiKey').value.trim(),
+      model: document.getElementById('settingModel').value,
+      deptSheets: newDeptSheets
+    };
+
+    if (!payload.mainSheetId) return showError('ข้อมูลไม่ครบถ้วน', 'กรุณาระบุ Main Google Sheet ID เพื่อเป็นศูนย์กลางการตรวจสอบ');
+
+    Swal.fire({ title: 'กำลังเข้ารหัสและบันทึกการตั้งค่า...', allowOutsideClick: false, didOpen: () => Swal.showLoading(), customClass: { popup: 'rounded-3xl', icon: 'custom-swal-icon' } });
+    
+    google.script.run
+      .withSuccessHandler(res => {
+        if (res.success) {
+          Swal.fire({ icon: 'success', title: 'สำเร็จ', text: res.message, confirmButtonColor: '#14b8a6', customClass: { popup: 'rounded-3xl', icon: 'custom-swal-icon' } })
+            .then(() => {
+              document.getElementById('globalLoader').style.display = 'flex';
+              document.getElementById('globalLoader').style.opacity = '1';
+              initApp(); 
+              switchView('dashboard');
+            });
+        } else {
+          showError('บันทึกไม่สำเร็จ', res.message);
+        }
+      })
+      .saveSettings(payload);
+  }
+
+  function updateSelectOptions(elementId, dataArray, placeholder) {
+    const select = document.getElementById(elementId);
+    if (!select) return;
+    select.innerHTML = `<option value="">${placeholder}</option>`;
+    dataArray.forEach(item => {
+      const option = document.createElement('option');
+      option.value = item;
+      option.textContent = item;
+      select.appendChild(option);
+    });
+  }
+
+  function populateInitialDropdowns() {
+    const eqaNames = [...new Set(state.eqaMaster.map(item => item.eqaName))].filter(String).sort();
+    updateSelectOptions('eqaName', eqaNames, '-- เลือก EQA --');
+    updateSelectOptions('recordBy', state.users, '-- เลือกผู้บันทึก --');
+    
+    const iqcNames = [...new Set(state.iqcMaster.map(item => item.iqcName))].filter(String).sort();
+    updateSelectOptions('iqcName', iqcNames, '-- เลือก IQC --');
+    updateSelectOptions('iqcRecordBy', state.users, '-- เลือกผู้บันทึก --');
+
+    populateEqaFilters();
+  }
+
+  function populateEqaFilters() {
+    const eqaNames = [...new Set(state.eqaMaster.map(item => item.eqaName))].filter(String).sort();
+    const eqaYears = [...new Set(state.eqaMaster.map(item => item.year))].filter(String).sort((a,b) => b - a);
+
+    const filterNameSel = document.getElementById('filterEqaName');
+    const filterYearSel = document.getElementById('filterEqaYear');
+
+    if (filterNameSel) {
+      filterNameSel.innerHTML = '<option value="ALL">ทุกรายการ</option>';
+      eqaNames.forEach(name => {
+        filterNameSel.insertAdjacentHTML('beforeend', `<option value="${name}">${name}</option>`);
+      });
+    }
+    if (filterYearSel) {
+      filterYearSel.innerHTML = '<option value="ALL">ทุกปี</option>';
+      eqaYears.forEach(yr => {
+        filterYearSel.insertAdjacentHTML('beforeend', `<option value="${yr}">${yr}</option>`);
+      });
+    }
+  }
+
+  // ==========================================
+  // 5. Dashboard Management (EQA Overview) & Accordion
+  // ==========================================
+  function loadDashboard() {
+    if(!checkDeptSelected()) return;
+
+    document.getElementById('dashboardLoader').classList.remove('hidden');
+    document.getElementById('dashboardEmptyState').classList.add('hidden');
+    
+    google.script.run
+      .withSuccessHandler(res => {
+        hideGlobalLoader();
+        document.getElementById('dashboardLoader').classList.add('hidden');
+        if (res.success) {
+          state.dashboardData = res.data;
+          renderDashboardTable(state.dashboardData, false);
+        }
+      })
+      .withFailureHandler(err => {
+        hideGlobalLoader();
+        document.getElementById('dashboardLoader').classList.add('hidden');
+        showError('ดึงข้อมูลระบบ EQA ล้มเหลว', err.message);
+      })
+      .getEQARecordsSummary(state.currentDeptName); 
+  }
+
+  function renderDashboardTable(data, isFiltered = false) {
+    const tbody = document.getElementById('dashboardTableBody');
+    const emptyState = document.getElementById('dashboardEmptyState');
+    tbody.innerHTML = '';
+
+    if (data.length === 0) {
+      emptyState.classList.remove('hidden');
+      emptyState.classList.add('flex');
+      
+      emptyState.innerHTML = isFiltered ? `
+          <div class="w-24 h-24 bg-slate-100 text-slate-400 rounded-full flex items-center justify-center text-4xl mb-4 shadow-inner animate-pulse-soft">
+            <i class="fa-solid fa-magnifying-glass"></i>
+          </div>
+          <h3 class="text-xl font-bold text-slate-700 mb-2">ไม่พบสถิติการประเมินคุณภาพ</h3>
+          <p class="text-slate-500 max-w-md">ทดลองสลับตัวคัดกรอง หรือปรับปีการประเมินใหม่อีกครั้งเพื่อทำการสแกนครับ</p>
+        ` : `
+          <div class="w-24 h-24 bg-brand-100 text-brand-500 rounded-full flex items-center justify-center text-4xl mb-4 shadow-inner animate-pulse-soft">
+            <i class="fa-solid fa-folder-open"></i>
+          </div>
+          <h3 class="text-xl font-bold text-slate-700 mb-2">ยังไม่มีข้อมูล EQA</h3>
+          <p class="text-slate-500 max-w-md">เริ่มบันทึกผลงานประเมินคุณภาพรอบใหม่ของคุณโดยใช้ปุ่ม "บันทึกผล EQA" ด้านบน</p>
+        `;
+      return;
+    }
+
+    emptyState.classList.add('hidden');
+
+    const groupedData = {};
+    data.forEach(item => {
+      const key = `${item.eqaName}_${item.year}`;
+      if (!groupedData[key]) {
+        groupedData[key] = {
+          eqaName: item.eqaName,
+          year: item.year,
+          totalTests: 0,
+          acceptableCount: 0,
+          answeredCount: 0,
+          criteriaAcc: item.criteriaAcc || 'ไม่ระบุเกณฑ์การผ่าน',
+          records: []
+        };
+      }
+      groupedData[key].totalTests += item.totalTests;
+      groupedData[key].acceptableCount += item.acceptableCount;
+      groupedData[key].answeredCount += (item.answeredCount || 0);
+      groupedData[key].records.push(item);
+    });
+
+    let groupIndex = 0;
+    for (const key in groupedData) {
+      const group = groupedData[key];
+      
+      const masterInfo = state.eqaMaster.find(m => String(m.eqaName).trim() === String(group.eqaName).trim() && String(m.year).trim() === String(group.year).trim()) || {};
+      const timesLimit = masterInfo.timesPerYear || 12; 
+      const certUrl = masterInfo.certUrl || '';
+
+      const overallPercent = group.totalTests > 0 ? ((group.acceptableCount / group.totalTests) * 100).toFixed(1) : "0.0";
+      const overallParticipation = group.records.length > 0 ? (group.records.reduce((acc, r) => acc + (r.participationPercent || 0), 0) / group.records.length).toFixed(1) : "0.0";
+
+      let pctClass = 'bg-red-100 text-red-700 border border-red-200';
+      const pctNum = parseFloat(overallPercent);
+      if (pctNum >= 80) pctClass = 'bg-brand-100 text-brand-700 border border-brand-200';
+      else if (pctNum >= 50) pctClass = 'bg-yellow-100 text-yellow-700 border border-yellow-200';
+
+      const accId = `acc_${groupIndex}`;
+      group.records.sort((a, b) => parseInt(a.times) - parseInt(b.times));
+
+      const circlesHtml = group.records.map(r => {
+        let circleClass = 'bg-brand-100 border-brand-200 text-brand-700';
+        if (r.unacceptableCount > 0) circleClass = 'bg-red-100 border-red-200 text-red-700'; 
+        else if (r.warningCount > 0) circleClass = 'bg-yellow-100 border-yellow-200 text-yellow-700'; 
+
+        return `<span class="inline-flex w-7 h-7 items-center justify-center rounded-full border shadow-sm text-[11px] font-bold font-mono ${circleClass}">${r.times}</span>`;
+      }).join('');
+
+      let certHtml = `<div class="text-[10px] text-slate-400 font-medium">รอผลสรุปครบ<br>${timesLimit} รอบประเมิน</div>`;
+      if (group.records.length >= timesLimit) {
+        certHtml = certUrl ? 
+          `<a href="${certUrl}" target="_blank" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-600 hover:text-blue-700 border border-blue-200 hover:border-blue-300 shadow-sm transition-all text-xs font-semibold" title="คลิกดูใบประกาศนียบัตร" onclick="event.stopPropagation();"><i class="fa-solid fa-certificate text-blue-500"></i> Certificate</a>` : 
+          `<button onclick="event.stopPropagation(); triggerCertUpload('${group.eqaName}', '${group.year}');" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-50 text-slate-600 hover:bg-brand-50 hover:text-brand-600 border border-slate-200 hover:border-brand-300 shadow-sm transition-all text-xs font-semibold"><i class="fa-solid fa-cloud-arrow-up"></i> แนบใบประกาศ</button>`;
+      }
+
+      const mainTr = document.createElement('tr');
+      mainTr.className = 'cursor-pointer hover:bg-brand-50/50 transition-colors group';
+      mainTr.onclick = () => toggleAccordion(accId);
+      mainTr.innerHTML = `
+        <td class="py-4 px-4 border-b border-slate-100">
+          <div class="font-bold text-slate-700 text-base group-hover:text-brand-600 transition-colors">${group.eqaName}</div>
+          <div class="text-xs text-slate-500 mt-1 flex items-center gap-2">
+             <span class="bg-slate-100 px-2.5 py-0.5 rounded-md border border-slate-200 font-medium font-mono">ปีประเมิน (Year): ${group.year}</span>
+             <span class="font-mono"><i class="fa-solid fa-layer-group text-slate-300"></i> ${group.records.length}/${timesLimit} ครั้ง</span>
+          </div>
+        </td>
+        <td class="py-4 px-2 border-b border-slate-100 text-center">
+          <div class="grid grid-cols-4 gap-1.5 w-max mx-auto justify-items-center">
+            ${circlesHtml}
+          </div>
+        </td>
+        <td class="py-4 px-2 border-b border-slate-100 text-center">
+          <div class="font-bold text-slate-700 text-sm font-mono">${overallParticipation}%</div>
+          <div class="w-20 bg-slate-100 rounded-full h-1.5 mt-1 mx-auto overflow-hidden shadow-inner">
+             <div class="bg-gradient-to-r from-blue-400 to-indigo-500 h-1.5 rounded-full" style="width: ${overallParticipation}%"></div>
+          </div>
+        </td>
+        <td class="py-4 px-2 border-b border-slate-100 text-center">
+          <div class="relative inline-block group/tooltip">
+            <span class="inline-block px-3 py-1 rounded-full text-sm font-bold font-mono shadow-sm ${pctClass} cursor-help transition-all transform hover:scale-105">
+              ${overallPercent}%
+            </span>
+            <div class="absolute bottom-full mb-2.5 left-1/2 -translate-x-1/2 z-50 opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible transition-all duration-200 bg-slate-800 text-white text-xs py-2 px-3.5 rounded-xl shadow-xl w-52 text-center border border-slate-700">
+              <div class="font-bold border-b border-slate-700 pb-1.5 mb-1.5 text-brand-300 flex items-center justify-center gap-1">
+                 <i class="fa-solid fa-award"></i> เกณฑ์ยอมรับ (Acceptable)
+              </div>
+              <div class="font-normal text-slate-200 leading-relaxed">${group.criteriaAcc}</div>
+              <div class="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800"></div>
+            </div>
+          </div>
+          <div class="text-[10px] text-slate-400 mt-1 font-mono">${group.acceptableCount}/${group.totalTests} Tests</div>
+        </td>
+        <td class="py-4 px-2 border-b border-slate-100 text-center">
+          ${certHtml}
+        </td>
+        <td class="py-4 px-4 border-b border-slate-100 text-center">
+          <div class="w-8 h-8 rounded-full bg-slate-50 text-slate-400 group-hover:bg-brand-100 group-hover:text-brand-600 transition-all flex items-center justify-center mx-auto shadow-sm border border-slate-200">
+            <i class="fa-solid fa-chevron-down transition-transform duration-300" id="icon_${accId}"></i>
+          </div>
+        </td>
+      `;
+      tbody.appendChild(mainTr);
+
+      const subTr = document.createElement('tr');
+      subTr.className = 'bg-slate-50/40 border-b border-slate-200';
+      
+      let subTableRows = '';
+      group.records.forEach(item => {
+        let subPctClass = 'text-red-600';
+        const itemPassRate = parseFloat(item.percentAcceptable);
+        if (itemPassRate >= 80) subPctClass = 'text-brand-600';
+        else if (itemPassRate >= 50) subPctClass = 'text-yellow-600';
+
+        let circleClassSub = 'bg-brand-50 border-brand-200 text-brand-700';
+        if (item.unacceptableCount > 0) circleClassSub = 'bg-red-50 border-red-200 text-red-700';
+        else if (item.warningCount > 0) circleClassSub = 'bg-yellow-50 border-yellow-200 text-yellow-700';
+
+        let pdfBtn = `<button disabled class="w-8 h-8 rounded-lg bg-slate-100 text-slate-300 cursor-not-allowed flex items-center justify-center" title="ไม่มีเอกสาร PDF ต้นฉบับแนบในระบบ"><i class="fa-solid fa-file-pdf"></i></button>`;
+        if (item.fileUrl) {
+          pdfBtn = `<a href="${item.fileUrl}" target="_blank" class="w-8 h-8 rounded-lg bg-red-50 text-red-500 hover:bg-red-500 hover:text-white hover:shadow-md transition-all flex items-center justify-center" title="ดูเอกสาร PDF ดิบจากต้นสังกัด"><i class="fa-solid fa-file-pdf"></i></a>`;
+        }
+
+        let downloadFmBtn = '';
+        let uploadFmBtn = '';
+        
+        if (item.fmCode) {
+          downloadFmBtn = `<button onclick="downloadFmPdf('${item.txid}')" class="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-500 hover:text-white hover:shadow-md transition-all flex items-center justify-center" title="ดาวน์โหลดใบลงบันทึกผลงานห้องปฏิบัติการ"><i class="fa-solid fa-file-arrow-down"></i></button>`;
+          
+          uploadFmBtn = item.fmUrl ? 
+            `<a href="${item.fmUrl}" target="_blank" class="w-8 h-8 rounded-lg bg-teal-50 text-teal-600 hover:bg-teal-500 hover:text-white hover:shadow-md transition-all flex items-center justify-center" title="ดูผลงานประเมินฉบับสมบูรณ์ (ที่ผ่านการอนุมัติ)"><i class="fa-solid fa-file-circle-check"></i></a>` : 
+            `<button onclick="triggerFmUpload('${item.txid}', '${item.eqaName}')" class="w-8 h-8 rounded-lg bg-orange-50 text-orange-500 hover:bg-orange-500 hover:text-white hover:shadow-md transition-all flex items-center justify-center" title="แนบเอกสาร FM บันทึกผลที่สมบูรณ์"><i class="fa-solid fa-file-arrow-up"></i></button>`;
+        }
+
+        subTableRows += `
+          <div class="flex items-center justify-between p-3 bg-white rounded-xl border border-slate-200 shadow-sm hover:border-brand-300 transition-colors animate-fade-in">
+            <div class="flex items-center gap-4">
+               <div class="w-11 h-11 rounded-full ${circleClassSub} border flex flex-col items-center justify-center shadow-inner">
+                 <span class="text-[9px] leading-none mb-0.5 opacity-80">รอบที่</span>
+                 <span class="text-base font-bold leading-none font-mono">${item.times}</span>
+               </div>
+               <div>
+                 <div class="text-sm font-semibold text-slate-700">ผู้ประเมิน: ${item.recordBy}</div>
+                 <div class="text-xs text-slate-400 font-mono"><i class="fa-regular fa-clock"></i> ${item.timestamp}</div>
+               </div>
+            </div>
+            
+            <div class="flex items-center gap-6">
+              <div class="text-right">
+                <div class="text-xs font-bold font-mono ${subPctClass}">${parseFloat(item.participationPercent).toFixed(1)}% เข้าร่วม, ${parseFloat(item.percentAcceptable).toFixed(1)}% ผ่านเกณฑ์</div>
+                <div class="text-[10px] text-slate-400 font-mono font-medium">${item.acceptableCount}/${item.totalTests} Tests</div>
+              </div>
+              
+              <div class="flex items-center gap-2 border-l border-slate-200 pl-4">
+                ${pdfBtn}
+                ${downloadFmBtn}
+                ${uploadFmBtn}
+                <button onclick="editRecord('${item.txid}')" class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-500 hover:text-white hover:shadow-md transition-all flex items-center justify-center" title="แก้ไขการบันทึกผลงานวิจัยรอบนี้">
+                  <i class="fa-solid fa-pen-to-square"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+        `;
+      });
+
+      subTr.innerHTML = `
+        <td colspan="6" class="p-0">
+          <div id="${accId}" class="accordion-content">
+            <div class="p-4 md:p-6 space-y-3 pl-8 md:pl-12 border-l-4 border-brand-400 ml-4 my-2">
+               ${subTableRows}
+            </div>
+          </div>
+        </td>
+      `;
+      tbody.appendChild(subTr);
+
+      groupIndex++;
+    }
+  }
+
+  function filterDashboard() {
+    const nameFilter = document.getElementById('filterEqaName').value;
+    const yearFilter = document.getElementById('filterEqaYear').value;
+    const query = document.getElementById('searchDashboard').value.toLowerCase().trim();
+
+    const filtered = state.dashboardData.filter(item => {
+      const matchName = (nameFilter === 'ALL' || item.eqaName === nameFilter);
+      const matchYear = (yearFilter === 'ALL' || normalizeYear(item.year) === normalizeYear(yearFilter));
+      
+      let matchQuery = true;
+      if (query !== '') {
+        matchQuery = (item.eqaName && item.eqaName.toLowerCase().includes(query)) ||
+                     (item.year && item.year.toLowerCase().includes(query)) ||
+                     (item.timestamp && item.timestamp.toLowerCase().includes(query)) ||
+                     (item.times && item.times.toString().includes(query));
+      }
+
+      return matchName && matchYear && matchQuery;
+    });
+
+    renderDashboardTable(filtered, query !== '' || nameFilter !== 'ALL' || yearFilter !== 'ALL');
+  }
+
+  function toggleAccordion(id) {
+    const content = document.getElementById(id);
+    const icon = document.getElementById(`icon_${id}`);
+    if (!content) return;
+    
+    const isExpanded = content.classList.contains('expanded');
+    content.classList.toggle('expanded', !isExpanded);
+    if(icon) icon.classList.toggle('rotate-180', !isExpanded);
+  }
+
+  // ==========================================
+  // 6. EQA Modal & Cascading Logic
+  // ==========================================
+  function openEQAModal() {
+    if (!checkDeptSelected()) return;
+
+    Swal.fire({ title: 'กำลังดึงฐานการตั้งค่าชุดทดสอบ...', allowOutsideClick: false, didOpen: () => Swal.showLoading(), customClass: { popup: 'rounded-3xl', icon: 'custom-swal-icon' } });
+    google.script.run
+      .withSuccessHandler(() => {
+        Swal.close();
+        resetEQAForm();
+        const modal = document.getElementById('eqaModal');
+        modal.classList.remove('hidden');
+        modal.querySelector('.overflow-y-auto').scrollTop = 0;
+      })
+      .getSettings(); 
+  }
+
+  function eqaCloseModalDirect() {
+    document.getElementById('eqaModal').classList.add('hidden');
+  }
+  // alias matching index.html
+  function closeEQAModal() {
+    eqaCloseModalDirect();
+  }
+
+  function resetEQAForm() {
+    document.getElementById('currentTxid').value = '';
+    state.currentFileUrl = '';
+    
+    document.getElementById('eqaName').value = '';
+    document.getElementById('eqaYear').value = ''; 
+    document.getElementById('eqaYear').disabled = true;
+    document.getElementById('eqaTimes').value = '';
+    document.getElementById('eqaLot').value = '';
+    document.getElementById('eqaLot').disabled = true;
+    document.getElementById('eqaExp').value = '';
+    document.getElementById('eqaExp').disabled = true;
+    document.getElementById('recordBy').value = '';
+    
+    document.getElementById('eqaModeSelection').classList.remove('hidden');
+    const locker = document.getElementById('modeLocker');
+    locker.classList.remove('hidden');
+    locker.classList.add('flex');
+    
+    const modeBtns = document.getElementById('modeButtons');
+    modeBtns.classList.add('hidden');
+    modeBtns.classList.remove('flex');
+    
+    document.getElementById('eqaAiUploadSection').classList.add('hidden');
+    document.getElementById('eqaTableSection').classList.add('hidden');
+    document.getElementById('modalFooter').classList.add('opacity-50', 'pointer-events-none');
+    
+    cancelAIMode(); 
+  }
+
+  function updateTimesDropdown(eqaName) {
+    const masterInfo = state.eqaMaster.find(item => item.eqaName === eqaName);
+    const timesSelect = document.getElementById('eqaTimes');
+    timesSelect.innerHTML = '<option value="">-- เลือกรอบประเมิน --</option>';
+    
+    const timesLimit = (masterInfo && masterInfo.timesPerYear) ? masterInfo.timesPerYear : 12;
+    for(let i = 1; i <= timesLimit; i++) {
+      timesSelect.insertAdjacentHTML('beforeend', `<option value="${i}">${i}</option>`);
+    }
+  }
+
+  function handleEQANameChange() {
+    const selectedName = document.getElementById('eqaName').value;
+    const yearSelect = document.getElementById('eqaYear'); 
+    const lotSelect = document.getElementById('eqaLot');
+    const expSelect = document.getElementById('eqaExp');
+
+    updateSelectOptions('eqaYear', [], '-- เลือกปีประเมิน --');
+    updateSelectOptions('eqaLot', [], '-- เลือก Lot --');
+    updateSelectOptions('eqaExp', [], '-- เลือก EXP --');
+    yearSelect.disabled = lotSelect.disabled = expSelect.disabled = true;
+
+    if (!selectedName) return;
+
+    updateTimesDropdown(selectedName);
+
+    const filteredYears = [...new Set(state.eqaMaster.filter(item => item.eqaName === selectedName).map(item => item.year))].filter(String).sort((a,b) => b-a);
+    updateSelectOptions('eqaYear', filteredYears, '-- เลือกปีประเมิน --');
+    yearSelect.disabled = false;
+  }
+
+  function handleYearChange() { 
+    const selectedName = document.getElementById('eqaName').value;
+    const selectedYear = document.getElementById('eqaYear').value;
+    const lotSelect = document.getElementById('eqaLot');
+    const expSelect = document.getElementById('eqaExp');
+
+    updateSelectOptions('eqaLot', [], '-- เลือก Lot --');
+    updateSelectOptions('eqaExp', [], '-- เลือก EXP --');
+    lotSelect.disabled = expSelect.disabled = true;
+
+    if (!selectedYear) return;
+
+    const filteredLots = [...new Set(state.eqaMaster.filter(item => item.eqaName === selectedName && item.year === selectedYear).map(item => item.lot))].filter(String).sort();
+    updateSelectOptions('eqaLot', filteredLots, '-- เลือก Lot --');
+    lotSelect.disabled = false;
+  }
+
+  function handleLotChange() {
+    const selectedName = document.getElementById('eqaName').value;
+    const selectedYear = document.getElementById('eqaYear').value;
+    const selectedLot = document.getElementById('eqaLot').value;
+    const expSelect = document.getElementById('eqaExp');
+
+    updateSelectOptions('eqaExp', [], '-- เลือก EXP --');
+    expSelect.disabled = true;
+
+    if (!selectedLot) return;
+
+    const filteredExps = [...new Set(state.eqaMaster.filter(item => item.eqaName === selectedName && item.year === selectedYear && item.lot === selectedLot).map(item => item.exp))].filter(String).sort();
+    updateSelectOptions('eqaExp', filteredExps, '-- เลือก EXP --');
+    expSelect.disabled = false;
+  }
+
+  function checkEQAHeader() {
+    const isComplete = document.getElementById('eqaName').value && 
+                       document.getElementById('eqaYear').value && 
+                       document.getElementById('eqaTimes').value && 
+                       document.getElementById('eqaLot').value && 
+                       document.getElementById('eqaExp').value && 
+                       document.getElementById('recordBy').value;
+
+    const locker = document.getElementById('modeLocker');
+    const btns = document.getElementById('modeButtons');
+    
+    locker.classList.toggle('hidden', isComplete);
+    locker.classList.toggle('flex', !isComplete);
+    btns.classList.toggle('hidden', !isComplete);
+    btns.classList.toggle('flex', isComplete);
+    
+    if (!isComplete) {
+      document.getElementById('eqaModeSelection').classList.remove('hidden');
+      document.getElementById('eqaAiUploadSection').classList.add('hidden');
+      document.getElementById('eqaTableSection').classList.add('hidden');
+      document.getElementById('modalFooter').classList.add('opacity-50', 'pointer-events-none');
+    }
+  }
+
+  function selectEQAMode(mode) {
+    document.getElementById('eqaModeSelection').classList.add('hidden');
+    if (mode === 'MANUAL') {
+      state.currentFileUrl = ''; 
+      document.getElementById('eqaTableSection').classList.remove('hidden');
+      document.getElementById('modalFooter').classList.remove('opacity-50', 'pointer-events-none');
+      fetchTestsTable(document.getElementById('eqaName').value);
+    } else if (mode === 'AI') {
+      document.getElementById('eqaAiUploadSection').classList.remove('hidden');
+    }
+  }
+
+  // ==========================================
+  // 7. EQA AI PDF Upload & Form Submit
+  // ==========================================
+  function initDragAndDropHelper(dropZoneId, fileInputId, processFn, activeClasses) {
+    const dropZone = document.getElementById(dropZoneId);
+    if (!dropZone) return;
+    const fileInput = document.getElementById(fileInputId);
+
+    const prevent = (e) => { e.preventDefault(); e.stopPropagation(); };
+    
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+      dropZone.addEventListener(eventName, prevent, false);
+    });
+
+    ['dragenter', 'dragover'].forEach(eventName => {
+      dropZone.addEventListener(eventName, () => dropZone.classList.add(...activeClasses), false);
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+      dropZone.addEventListener(eventName, () => dropZone.classList.remove(...activeClasses), false);
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+      const file = e.dataTransfer.files[0];
+      if (file) {
+        fileInput.files = e.dataTransfer.files;
+        processFn(file);
+      }
+    }, false);
+  }
+
+  function handleFileSelect(e) {
+    const file = e.target.files[0];
+    if (file) processSelectedFile(file);
+  }
+
+  function processSelectedFile(file) {
+    if (file.type !== 'application/pdf') {
+      return showError('รูปแบบไฟล์ไม่ถูกต้อง', 'กรุณาอัปโหลดเอกสารรายงานประเมินผลในรูปแบบ PDF เท่านั้นครับ');
+    }
+    state.aiFile = file;
+    document.getElementById('fileNameDisplay').textContent = file.name;
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      state.aiBase64 = e.target.result.split(',')[1];
+      const btn = document.getElementById('btnStartAI');
+      btn.disabled = false;
+      btn.classList.remove('bg-slate-300', 'cursor-not-allowed');
+      btn.classList.add('bg-brand-500', 'hover:bg-brand-600', 'shadow-md');
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function cancelAIMode() {
+    document.getElementById('eqaAiUploadSection').classList.add('hidden');
+    document.getElementById('eqaModeSelection').classList.remove('hidden');
+    state.aiFile = state.aiBase64 = null;
+    document.getElementById('fileNameDisplay').textContent = 'คลิกเพื่อเลือกไฟล์ หรือ ลากไฟล์มาวางที่นี่';
+    document.getElementById('pdfFileInput').value = '';
+    const btn = document.getElementById('btnStartAI');
+    btn.disabled = true;
+    btn.classList.remove('bg-brand-500', 'hover:bg-brand-600', 'shadow-md');
+    btn.classList.add('bg-slate-300', 'cursor-not-allowed');
+  }
+
+  function handleAIErrorGeneric(errMsg, isIqc = false) {
+    let title = "การวิเคราะห์ AI มีปัญหา";
+    let body = "สภาวะเครือข่ายขัดข้อง หรือคีย์ API เกินลิมิตการทำงานชั่วคราว ระบบจะสลับไปที่หน้าจอการกรอกแบบแมนนวลให้คุณทันทีครับ";
+    if (errMsg === "API_KEY_MISSING") {
+      title = "ไม่พบคีย์เชื่อมต่อ AI";
+      body = "กรุณาเปิดโหมดผู้ดูแลระบบเพื่อทำการระบุ 'Gemini API Key' ในหน้าการตั้งค่าหลังบ้านก่อนครับ";
+    }
+    Swal.fire({
+      icon: 'warning', title: title, text: body, confirmButtonColor: '#14b8a6', customClass: { popup: 'rounded-3xl', icon: 'custom-swal-icon' }
+    }).then(() => {
+       if (isIqc) {
+         selectIQCMode('MANUAL');
+       } else {
+         selectEQAMode('MANUAL');
+       }
+    });
+  }
+
+  function startAIAnalysis() {
+    const eqaName = document.getElementById('eqaName').value;
+    const year = document.getElementById('eqaYear').value;
+
+    const masterInfo = state.eqaMaster.find(item => item.eqaName === eqaName && item.year === year) || {};
+    const folderId = masterInfo.folderId || '';
+    const keyword = masterInfo.keyword || '';
+    const targetData = masterInfo.targetData || '';
+
+    document.getElementById('eqaAiUploadSection').classList.add('hidden');
+    document.getElementById('eqaTableSection').classList.remove('hidden');
+    
+    const loader = document.getElementById('tableLoader');
+    loader.classList.remove('hidden');
+    loader.classList.add('flex');
+    document.getElementById('standardTableSpinner').classList.add('hidden');
+    document.getElementById('standardTableSpinner').classList.remove('flex');
+    
+    const dots = document.getElementById('aiAnalyzingDots');
+    dots.classList.remove('hidden');
+    dots.classList.add('flex');
+
+    const progressBar = document.getElementById('aiProgressBar');
+    progressBar.style.width = '20%';
+
+    setTimeout(() => {
+       progressBar.style.width = '60%';
+    }, 1200);
+
+    google.script.run
+      .withSuccessHandler(res => {
+        if (res.success && res.data.length > 0) {
+          state.currentTests = res.data;
+          const testsList = res.data.map(t => t.test);
+
+          progressBar.style.width = '85%';
+
+          google.script.run
+            .withSuccessHandler(aiRes => {
+              if(aiRes.success) {
+                progressBar.style.width = '100%';
+                state.currentFileUrl = aiRes.fileUrl || '';
+
+                setTimeout(() => {
+                  loader.classList.add('hidden'); loader.classList.remove('flex');
+
+                  const mergedData = state.currentTests.map(baseTest => {
+                    const aiData = aiRes.data.find(a => a.test.toLowerCase() === baseTest.test.toLowerCase()) || {};
+                    return {
+                      test: baseTest.test, unit: baseTest.unit,
+                      result: aiData.result !== undefined && aiData.result !== "" ? aiData.result : '',
+                      meanTarget: aiData.meanTarget !== undefined && aiData.meanTarget !== "" ? aiData.meanTarget : '',
+                      bias: aiData.bias !== undefined && aiData.bias !== "" ? aiData.bias : '',
+                      zScore: aiData.zScore !== undefined && aiData.zScore !== "" ? aiData.zScore : '',
+                      evaluation: '', remark: ''
+                    };
+                  });
+
+                  renderTestsTableWithData(mergedData);
+
+                  document.querySelectorAll('#testsTableBody tr').forEach(row => {
+                     const resInput = row.querySelector('.row-result');
+                     calculateBiasAndEvaluate(resInput);
+                  });
+
+                  document.getElementById('modalFooter').classList.remove('opacity-50', 'pointer-events-none');
+                  Swal.fire({ icon: 'success', title: 'การอ่านด้วย AI สมบูรณ์', html: 'กรุณาตรวจสอบค่า Z-Score และตัวประเมินผลอีกครั้งก่อนยืนยัน', timer: 3000, showConfirmButton: false, backdrop: `rgba(20, 184, 166, 0.1)`, customClass: { popup: 'rounded-3xl', icon: 'custom-swal-icon' } });
+                }, 800); 
+
+              } else {
+                loader.classList.add('hidden'); loader.classList.remove('flex');
+                handleAIErrorGeneric(aiRes.message, false);
+              }
+            })
+            .withFailureHandler(err => {
+              loader.classList.add('hidden'); loader.classList.remove('flex');
+              handleAIErrorGeneric(err.message, false);
+            })
+            .processPdfWithAI(state.aiBase64, state.aiFile.name, folderId, keyword, targetData, testsList); 
+
+        } else {
+          loader.classList.add('hidden'); loader.classList.remove('flex');
+          showError('ไม่พบการกำหนดชุดทดสอบ', 'กรุณากำหนดความเชื่อมโยง Tests ในแท็บ MetaData ก่อนครับ');
+          cancelAIMode();
+        }
+      })
+      .withFailureHandler(err => {
+        loader.classList.add('hidden'); loader.classList.remove('flex');
+        handleAIErrorGeneric(err.message, false);
+      })
+      .getTestsForEQA(eqaName, state.currentDeptName); 
+  }
+
+  function fetchTestsTable(eqaName) {
+    const tbody = document.getElementById('testsTableBody');
+    const loader = document.getElementById('tableLoader');
+    
+    document.getElementById('aiAnalyzingDots').classList.add('hidden');
+    document.getElementById('aiAnalyzingDots').classList.remove('flex');
+    document.getElementById('standardTableSpinner').classList.remove('hidden');
+    document.getElementById('standardTableSpinner').classList.add('flex');
+    
+    loader.classList.remove('hidden'); loader.classList.add('flex');
+    tbody.innerHTML = '';
+
+    google.script.run
+      .withSuccessHandler(res => {
+        loader.classList.add('hidden'); loader.classList.remove('flex');
+        if (res.success && res.data.length > 0) {
+          state.currentTests = res.data;
+          renderTestsTableWithData(res.data.map(t => ({ test: t.test, unit: t.unit, result: '', meanTarget: '', bias: '', zScore: '', evaluation: '', remark: '' })));
+        } else {
+          tbody.innerHTML = `<tr><td colspan="8" class="py-12 text-center text-red-400"><i class="fa-solid fa-circle-exclamation text-4xl mb-3 opacity-80"></i><p>ไม่พบโครงสร้างการทดสอบที่กำหนดไว้ของโครงการ EQA ชนิดนี้</p></td></tr>`;
+        }
+      })
+      .withFailureHandler(err => {
+        loader.classList.add('hidden'); loader.classList.remove('flex');
+        showError('ดึงข้อมูลระบบทดสอบล้มเหลว', err.message);
+      })
+      .getTestsForEQA(eqaName, state.currentDeptName); 
+  }
+
+  function renderTestsTableWithData(testsData) {
+    const tbody = document.getElementById('testsTableBody');
+    tbody.innerHTML = '';
+
+    testsData.forEach(item => {
+      const tr = document.createElement('tr');
+      tr.className = 'hover:bg-slate-50/50 transition-colors';
+      
+      let evalBadge = '<span class="text-slate-400 text-xs">รอกรอกผล...</span>';
+      if (item.evaluation === 'Acceptable') evalBadge = '<span class="px-3 py-1 rounded-full bg-brand-100 text-brand-700 text-xs font-semibold shadow-sm border border-brand-200">Acceptable</span>';
+      else if (item.evaluation === 'Warning') evalBadge = '<span class="px-3 py-1 rounded-full bg-yellow-100 text-yellow-700 text-xs font-semibold shadow-sm border border-yellow-200">Warning</span>';
+      else if (item.evaluation === 'Unacceptable') evalBadge = '<span class="px-3 py-1 rounded-full bg-red-100 text-red-700 text-xs font-semibold shadow-sm border border-red-200">Unacceptable</span>';
+      else if (item.remark) evalBadge = '<span class="px-3 py-1 rounded-full bg-slate-100 text-slate-500 text-xs font-semibold shadow-sm border border-slate-200">N/A</span>';
+
+      tr.innerHTML = `
+        <td class="py-3 px-4 font-medium text-slate-700 w-2/12 truncate">
+          ${item.test}
+          <input type="hidden" class="row-test-name" value="${item.test}">
+        </td>
+        <td class="py-3 px-4 text-slate-500 text-center w-1/12 truncate">${item.unit || '-'}</td>
+        <td class="py-3 px-4 w-[12.5%]"><input type="number" step="any" class="row-result w-full form-input rounded-lg text-sm font-mono text-blue-700" placeholder="Result" value="${item.result}"></td>
+        <td class="py-3 px-4 w-[12.5%]"><input type="number" step="any" class="row-mean w-full form-input rounded-lg text-sm font-mono text-emerald-700" placeholder="Mean/Target" value="${item.meanTarget}"></td>
+        <td class="py-3 px-4 w-1/12"><input type="number" step="any" class="row-bias w-full form-input rounded-lg text-sm font-mono text-orange-600 bg-slate-50" placeholder="%Bias" value="${item.bias}"></td>
+        <td class="py-3 px-4 w-1/12"><input type="number" step="any" class="row-zscore w-full form-input rounded-lg text-sm font-mono text-purple-700" placeholder="Z-score" value="${item.zScore}"></td>
+        <td class="py-3 px-4 text-center w-[12.5%]"><div class="eval-display">${evalBadge}</div><input type="hidden" class="row-evaluation" value="${item.evaluation}"></td>
+        <td class="py-3 px-4 w-[20.8%]"><input type="text" class="row-remark w-full form-input rounded-lg text-sm text-slate-600" placeholder="ระบุเหตุผลในการไม่วิเคราะห์ประเมิน" value="${item.remark}"></td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  document.getElementById('testsTableBody').addEventListener('input', function(e) {
+    const target = e.target;
+    if (['row-result', 'row-mean', 'row-bias', 'row-zscore', 'row-remark'].some(c => target.classList.contains(c))) {
+      target.classList.remove('border-red-500', 'bg-red-50');
+      const row = target.closest('tr');
+      row.querySelector('.row-result').classList.remove('border-red-500', 'bg-red-50');
+      row.querySelector('.row-zscore').classList.remove('border-red-500', 'bg-red-50');
+      row.querySelector('.row-remark').classList.remove('border-red-500', 'bg-red-50');
+      calculateBiasAndEvaluate(target);
+    }
+  });
+
+  function calculateBiasAndEvaluate(inputEl) {
+    const row = inputEl.closest('tr');
+    if (!row) return;
+
+    const resInput = row.querySelector('.row-result');
+    const meanInput = row.querySelector('.row-mean');
+    const biasInput = row.querySelector('.row-bias');
+    const zInput = row.querySelector('.row-zscore');
+    const remarkInput = row.querySelector('.row-remark');
+    const evalDisplay = row.querySelector('.eval-display');
+    const evalInput = row.querySelector('.row-evaluation');
+
+    const resValText = resInput.value;
+    const meanValText = meanInput.value;
+    
+    if (resValText !== '' && meanValText !== '') {
+       const resVal = parseFloat(resValText);
+       const meanVal = parseFloat(meanValText);
+       if (!isNaN(resVal) && !isNaN(meanVal) && meanVal !== 0) {
+          if (document.activeElement !== biasInput) {
+            const bias = ((resVal - meanVal) / meanVal) * 100;
+            biasInput.value = bias.toFixed(2);
+          }
+       }
+    }
+
+    const zValText = zInput.value;
+    if (zValText === '') {
+      if (remarkInput.value.trim() !== '') {
+         evalDisplay.innerHTML = '<span class="px-3 py-1 rounded-full bg-slate-100 text-slate-500 text-xs font-semibold shadow-sm border border-slate-200">N/A</span>';
+      } else {
+         evalDisplay.innerHTML = '<span class="text-slate-400 text-xs">รอกรอกผล...</span>';
+      }
+      evalInput.value = '';
+      return;
+    }
+
+    const zVal = parseFloat(zValText);
+    if (isNaN(zVal)) return;
+
+    const absZ = Math.abs(zVal);
+    if (absZ <= 2.0) {
+      evalDisplay.innerHTML = '<span class="px-3 py-1 rounded-full bg-brand-100 text-brand-700 text-xs font-semibold shadow-sm border border-brand-200">Acceptable</span>';
+      evalInput.value = 'Acceptable';
+    } else if (absZ > 2.0 && absZ < 3.0) {
+      evalDisplay.innerHTML = '<span class="px-3 py-1 rounded-full bg-yellow-100 text-yellow-700 text-xs font-semibold shadow-sm border border-yellow-200">Warning</span>';
+      evalInput.value = 'Warning';
+    } else {
+      evalDisplay.innerHTML = '<span class="px-3 py-1 rounded-full bg-red-100 text-red-700 text-xs font-semibold shadow-sm border border-red-200">Unacceptable</span>';
+      evalInput.value = 'Unacceptable';
+    }
+  }
+
+  function submitEQAForm() {
+    const currentTxid = document.getElementById('currentTxid').value;
+    const payload = {
+      txid: currentTxid,
+      deptName: state.currentDeptName, 
+      eqaName: document.getElementById('eqaName').value,
+      year: document.getElementById('eqaYear').value, 
+      times: document.getElementById('eqaTimes').value,
+      lot: document.getElementById('eqaLot').value,
+      exp: document.getElementById('eqaExp').value,
+      recordBy: document.getElementById('recordBy').value,
+      fileUrl: state.currentFileUrl, 
+      tests: []
+    };
+
+    if (!payload.eqaName || !payload.year || !payload.times || !payload.lot || !payload.exp || !payload.recordBy) {
+      return Swal.fire({ icon: 'warning', title: 'ข้อมูลไม่ครบถ้วน', text: 'กรุณากรอกข้อมูลส่วนหัวและระบุผู้ตรวจสอบให้เรียบร้อย', confirmButtonColor: '#14b8a6', customClass: { popup: 'rounded-3xl', icon: 'custom-swal-icon' } });
+    }
+
+    const tbody = document.getElementById('testsTableBody');
+    const rows = tbody.querySelectorAll('tr');
+    if (rows.length === 0 || !tbody.querySelector('.row-test-name')) {
+      return Swal.fire({ icon: 'warning', title: 'ไม่มีโครงสร้างการทดสอบ', text: 'ไม่พบรายการทดสอบที่ใช้ทำคะแนน', confirmButtonColor: '#14b8a6', customClass: { popup: 'rounded-3xl', icon: 'custom-swal-icon' } });
+    }
+
+    let hasError = false;
+    rows.forEach(row => {
+      const testNameInput = row.querySelector('.row-test-name');
+      if (testNameInput) {
+        const testName = testNameInput.value;
+        const resultInput = row.querySelector('.row-result');
+        const meanInput = row.querySelector('.row-mean');
+        const biasInput = row.querySelector('.row-bias');
+        const zScoreInput = row.querySelector('.row-zscore');
+        const remarkInput = row.querySelector('.row-remark');
+        const evalInput = row.querySelector('.row-evaluation');
+
+        const resultVal = resultInput.value.trim();
+        const zScoreVal = zScoreInput.value.trim();
+        const remarkVal = remarkInput.value.trim();
+
+        if (resultVal === '' && zScoreVal === '') {
+          if (remarkVal === '') {
+            hasError = true;
+            resultInput.classList.add('border-red-500', 'bg-red-50');
+            zScoreInput.classList.add('border-red-500', 'bg-red-50');
+            remarkInput.classList.add('border-red-500', 'bg-red-50');
+          } else {
+             payload.tests.push({ test: testName, result: '', meanTarget: '', bias: '', zScore: '', evaluation: '', remark: remarkVal });
+          }
+        } else if (resultVal === '' || zScoreVal === '') {
+          hasError = true;
+          if (resultVal === '') resultInput.classList.add('border-red-500', 'bg-red-50');
+          if (zScoreVal === '') zScoreInput.classList.add('border-red-500', 'bg-red-50');
+        } else {
+          payload.tests.push({
+            test: testName, result: parseFloat(resultVal), meanTarget: meanInput.value.trim(),
+            bias: biasInput.value.trim(), zScore: parseFloat(zScoreVal),
+            evaluation: evalInput.value, remark: remarkVal
+          });
+        }
+      }
+    });
+
+    if (hasError) return Swal.fire({ icon: 'error', title: 'ข้อมูลยังไม่ครบ', text: 'กรุณากรอกผลวิเคราะห์และ Z-Score หรือหากข้ามให้ระบุหมายเหตุทางแล็บให้ครบครับ', confirmButtonColor: '#ef4444', customClass: { popup: 'rounded-3xl', icon: 'custom-swal-icon' } });
+
+    const actionText = currentTxid ? 'อัปเดตข้อมูลประวัติ' : 'บันทึกลงสมุดทะเบียน';
+    Swal.fire({
+      title: `ยืนยันการ${actionText}?`, text: `คุณกำลังทำการส่งข้อมูลแล็บ EQA จำนวน ${payload.tests.length} การทดสอบ`,
+      icon: 'question', showCancelButton: true, confirmButtonColor: '#14b8a6', cancelButtonColor: '#94a3b8',
+      confirmButtonText: `ใช่, ส่งบันทึก`, cancelButtonText: 'ย้อนกลับเพื่อตรวจสอบ', customClass: { popup: 'rounded-3xl', icon: 'custom-swal-icon' }
+    }).then((result) => {
+      if (result.isConfirmed) {
+        Swal.fire({ title: 'กำลังเขียนข้อมูลลงเซิร์ฟเวอร์...', allowOutsideClick: false, didOpen: () => Swal.showLoading(), customClass: { popup: 'rounded-3xl', icon: 'custom-swal-icon' } });
+        const serverMethod = currentTxid ? 'updateEQARecord' : 'saveEQARecord';
+        google.script.run
+          .withSuccessHandler(res => {
+            if (res.success) {
+              Swal.fire({ icon: 'success', title: 'เสร็จสมบูรณ์', html: `ลงทะเบียน EQA เรียบร้อยแล้ว`, confirmButtonColor: '#14b8a6', customClass: { popup: 'rounded-3xl', icon: 'custom-swal-icon' } }).then(() => { closeEQAModal(); loadDashboard(); });
+            } else { showError(`${actionText}ไม่สำเร็จ`, res.message); }
+          })
+          .withFailureHandler(err => showError('ข้อผิดพลาดเครือข่าย', err.message))
+          [serverMethod](payload);
+      }
+    });
+  }
+
+  function editRecord(txid) {
+    if(!checkDeptSelected()) return;
+    
+    Swal.fire({ title: 'กำลังโหลดประวัติผลแล็บ EQA...', allowOutsideClick: false, didOpen: () => Swal.showLoading(), customClass: { popup: 'rounded-3xl', icon: 'custom-swal-icon' } });
+    google.script.run
+      .withSuccessHandler(res => {
+        Swal.close();
+        if (res.success) {
+          const meta = res.metadata;
+          document.getElementById('currentTxid').value = meta.txid;
+          state.currentFileUrl = meta.fileUrl || ''; 
+          document.getElementById('eqaName').value = meta.eqaName;
+          updateTimesDropdown(meta.eqaName); 
+          
+          const filteredYears = [...new Set(state.eqaMaster.filter(item => item.eqaName === meta.eqaName).map(item => item.year))].filter(String).sort((a,b) => b-a);
+          updateSelectOptions('eqaYear', filteredYears, '-- เลือกปีประเมิน --');
+          document.getElementById('eqaYear').disabled = false;
+          document.getElementById('eqaYear').value = meta.year; 
+          
+          const filteredLots = [...new Set(state.eqaMaster.filter(item => item.eqaName === meta.eqaName && item.year === meta.year).map(item => item.lot))].filter(String).sort();
+          updateSelectOptions('eqaLot', filteredLots, '-- เลือก Lot --');
+          document.getElementById('eqaLot').disabled = false;
+          document.getElementById('eqaLot').value = meta.lot;
+          
+          const filteredExps = [...new Set(state.eqaMaster.filter(item => item.eqaName === meta.eqaName && item.year === meta.year && item.lot === meta.lot).map(item => item.exp))].filter(String).sort();
+          updateSelectOptions('eqaExp', filteredExps, '-- เลือก EXP --');
+          document.getElementById('eqaExp').disabled = false;
+          document.getElementById('eqaExp').value = meta.exp;
+          
+          document.getElementById('eqaTimes').value = meta.times;
+          document.getElementById('recordBy').value = meta.recordBy;
+
+          document.getElementById('eqaModeSelection').classList.add('hidden');
+          document.getElementById('eqaAiUploadSection').classList.add('hidden');
+          document.getElementById('eqaTableSection').classList.remove('hidden');
+          document.getElementById('modalFooter').classList.remove('opacity-50', 'pointer-events-none');
+
+          const modal = document.getElementById('eqaModal');
+          modal.classList.remove('hidden');
+          modal.querySelector('.overflow-y-auto').scrollTop = 0;
+
+          renderTestsTableWithData(res.tests);
+        } else { showError('เกิดข้อผิดพลาด', res.message); }
+      })
+      .withFailureHandler(err => showError('ข้อผิดพลาด', err.message))
+      .getEQARecordDetails(txid, state.currentDeptName); 
+  }
+
+  function downloadFmPdf(txid) {
+    if(!checkDeptSelected()) return;
+
+    Swal.fire({ 
+      title: 'กำลังสร้างไฟล์รายงาน PDF...', 
+      text: 'ระบบกำลังจัดทำแบบฟอร์มเอกสารบันทึกผลทางห้องปฏิบัติการ',
+      allowOutsideClick: false, 
+      didOpen: () => Swal.showLoading(),
+      customClass: { popup: 'rounded-3xl', icon: 'custom-swal-icon' }
+    });
+    
+    google.script.run
+      .withSuccessHandler(res => {
+        if (res.success) {
+          Swal.close();
+          const link = document.createElement('a');
+          link.href = `data:application/pdf;base64,${res.base64}`;
+          link.download = res.filename;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        } else {
+          showError('สร้างเอกสารล้มเหลว', res.message);
+        }
+      })
+      .withFailureHandler(err => showError('ข้อผิดพลาดเครือข่าย', err.message))
+      .generateFmDocument(txid, state.currentDeptName); 
+  }
+
+  function triggerFmUpload(txid, eqaName) {
+    state.uploadingFmInfo = { txid: txid, eqaName: eqaName };
+    document.getElementById('fmFileInput').click();
+  }
+
+  function handleFmFileSelect(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    if (file.type !== 'application/pdf') {
+      return showError('ไฟล์ไม่รองรับ', 'กรุณาแนบรายงานในรูปแบบไฟล์ PDF เท่านั้นครับ');
+    }
+
+    Swal.fire({
+      title: 'ยืนยันการแนบเอกสารรับรอง',
+      text: `ต้องการอัปโหลดไฟล์ "${file.name}" บันทึกลงเวชสาร EQA หรือไม่?`,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'ยืนยันอัปโหลด',
+      cancelButtonText: 'ยกเลิก',
+      confirmButtonColor: '#14b8a6',
+      customClass: { popup: 'rounded-3xl', icon: 'custom-swal-icon' }
+    }).then((result) => {
+      if (result.isConfirmed) {
+        Swal.fire({ title: 'กำลังอัปโหลด...', allowOutsideClick: false, didOpen: () => Swal.showLoading(), customClass: { popup: 'rounded-3xl', icon: 'custom-swal-icon' } });
+        
+        const reader = new FileReader();
+        reader.onload = function(ev) {
+          const base64Data = ev.target.result.split(',')[1];
+          const payload = {
+            txid: state.uploadingFmInfo.txid,
+            deptName: state.currentDeptName, 
+            eqaName: state.uploadingFmInfo.eqaName,
+            base64Data: base64Data,
+            filename: file.name
+          };
+
+          google.script.run
+            .withSuccessHandler(res => {
+              if (res.success) {
+                Swal.fire({ icon: 'success', title: 'อัปโหลดสำเร็จ', confirmButtonColor: '#14b8a6', customClass: { popup: 'rounded-3xl', icon: 'custom-swal-icon' } }).then(() => loadDashboard());
+              } else {
+                showError('บันทึกล้มเหลว', res.message);
+              }
+              state.uploadingFmInfo = null;
+              document.getElementById('fmFileInput').value = '';
+            })
+            .withFailureHandler(err => {
+              showError('ข้อผิดพลาดเครือข่าย', err.message);
+              state.uploadingFmInfo = null;
+              document.getElementById('fmFileInput').value = '';
+            })
+            .uploadFmDocument(payload);
+        };
+        reader.readAsDataURL(file);
+      } else {
+        document.getElementById('fmFileInput').value = '';
+        state.uploadingFmInfo = null;
+      }
+    });
+  }
+
+  function triggerCertUpload(eqaName, year) { 
+    state.uploadingCertInfo = { eqaName: eqaName, year: year };
+    document.getElementById('certFileInput').click();
+  }
+
+  function handleCertFileSelect(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    if (file.type !== 'application/pdf') {
+      return showError('ไฟล์ไม่รองรับ', 'กรุณาอัปโหลดไฟล์ PDF เท่านั้นครับ');
+    }
+
+    Swal.fire({
+      title: 'แนบใบประกาศเกียรติคุณรายปี',
+      text: `ยืนยันการบันทึกไฟล์ "${file.name}" เป็นใบ Certificate ของ ${state.uploadingCertInfo.eqaName} ประจำปี ${state.uploadingCertInfo.year}`,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'ยืนยัน',
+      cancelButtonText: 'ยกเลิก',
+      confirmButtonColor: '#14b8a6',
+      customClass: { popup: 'rounded-3xl', icon: 'custom-swal-icon' }
+    }).then((result) => {
+      if (result.isConfirmed) {
+        Swal.fire({ title: 'กำลังบันทึกเกียรติบัตร...', allowOutsideClick: false, didOpen: () => Swal.showLoading(), customClass: { popup: 'rounded-3xl', icon: 'custom-swal-icon' } });
+        
+        const masterInfo = state.eqaMaster.find(m => m.eqaName === state.uploadingCertInfo.eqaName && m.year === state.uploadingCertInfo.year);
+        if (!masterInfo || !masterInfo.folderId) {
+          return showError('ระบบไม่พบแฟ้มเก็บบันทึก', 'ไม่พบโฟลเดอร์สำหรับอ้างอิง EQA ในสารบบหลัก');
+        }
+
+        const reader = new FileReader();
+        reader.onload = function(ev) {
+          const base64Data = ev.target.result.split(',')[1];
+          const payload = {
+            deptName: state.currentDeptName, 
+            eqaName: state.uploadingCertInfo.eqaName,
+            year: state.uploadingCertInfo.year,
+            folderId: masterInfo.folderId,
+            base64Data: base64Data,
+            filename: file.name
+          };
+
+          google.script.run
+            .withSuccessHandler(res => {
+              if (res.success) {
+                Swal.fire({ icon: 'success', title: 'อัปโหลดใบรับรองเสร็จสิ้น', confirmButtonColor: '#14b8a6', customClass: { popup: 'rounded-3xl', icon: 'custom-swal-icon' } }).then(() => loadDashboard());
+              } else {
+                showError('บันทึกล้มเหลว', res.message);
+              }
+              state.uploadingCertInfo = null;
+              document.getElementById('certFileInput').value = '';
+            })
+            .withFailureHandler(err => {
+              showError('ข้อผิดพลาดเครือข่าย', err.message);
+              state.uploadingCertInfo = null;
+              document.getElementById('certFileInput').value = '';
+            })
+            .uploadCertificate(payload);
+        };
+        reader.readAsDataURL(file);
+      } else {
+        document.getElementById('certFileInput').value = '';
+        state.uploadingCertInfo = null;
+      }
+    });
+  }
+
+  // ==========================================
+  // 8. IQC Modal, AI Upload, & Submission
+  // ==========================================
+  function openIQCModal() {
+    if (!checkDeptSelected()) return;
+
+    Swal.fire({ title: 'กำลังเตรียมฟอร์มบันทึกความแม่นยำประจำเดือน...', allowOutsideClick: false, didOpen: () => Swal.showLoading(), customClass: { popup: 'rounded-3xl', icon: 'custom-swal-icon' } });
+    google.script.run
+      .withSuccessHandler(() => {
+        Swal.close();
+        resetIQCForm();
+        const modal = document.getElementById('iqcModal');
+        modal.classList.remove('hidden');
+        modal.querySelector('.overflow-y-auto').scrollTop = 0;
+      })
+      .getSettings(); 
+  }
+
+  function iqcCloseModalDirect() {
+    document.getElementById('iqcModal').classList.add('hidden');
+  }
+  // alias matching index.html
+  function closeIQCModal() {
+    iqcCloseModalDirect();
+  }
+
+  function resetIQCForm() {
+    document.getElementById('iqcMonth').value = '';
+    document.getElementById('iqcYear').value = '';
+    document.getElementById('iqcName').value = '';
+    
+    document.getElementById('iqcLot').innerHTML = '<option value="">-- เลือก Lot --</option>';
+    document.getElementById('iqcLot').disabled = true;
+    document.getElementById('iqcExp').innerHTML = '<option value="">-- เลือก EXP --</option>';
+    document.getElementById('iqcExp').disabled = true;
+    document.getElementById('iqcRecordBy').value = '';
+    
+    document.getElementById('iqcModeSelection').classList.remove('hidden');
+    const locker = document.getElementById('iqcModeLocker');
+    locker.classList.remove('hidden');
+    locker.classList.add('flex');
+    
+    const modeBtns = document.getElementById('iqcModeButtons');
+    modeBtns.classList.add('hidden');
+    modeBtns.classList.remove('flex');
+    
+    document.getElementById('iqcAiUploadSection').classList.add('hidden');
+    document.getElementById('iqcTableSection').classList.add('hidden');
+    document.getElementById('iqcModalFooter').classList.add('opacity-50', 'pointer-events-none');
+    
+    cancelIQCAIMode(); 
+  }
+
+  function handleIQCNameChange() {
+    const name = document.getElementById('iqcName').value;
+    const lotSelect = document.getElementById('iqcLot');
+    const expSelect = document.getElementById('iqcExp');
+    
+    updateSelectOptions('iqcLot', [], '-- เลือก Lot --');
+    updateSelectOptions('iqcExp', [], '-- เลือก EXP --');
+    lotSelect.disabled = expSelect.disabled = true;
+
+    if(!name) return;
+    
+    const relatedIqcs = state.iqcMaster.filter(i => i.iqcName === name);
+    if(relatedIqcs.length > 0) {
+      state.currentIqcLevels = relatedIqcs[0].level || 1;
+      
+      const uniqueLots = [...new Set(relatedIqcs.map(item => item.lots.join(', ')))].filter(String).sort();
+      updateSelectOptions('iqcLot', uniqueLots, '-- เลือก Lot --');
+      
+      lotSelect.disabled = false;
+    }
+  }
+
+  function handleIQCLotChange() {
+    const name = document.getElementById('iqcName').value;
+    const lot = document.getElementById('iqcLot').value;
+    const expSelect = document.getElementById('iqcExp');
+
+    updateSelectOptions('iqcExp', [], '-- เลือก EXP --');
+    expSelect.disabled = true;
+
+    if(!name || !lot) return;
+
+    const relatedIqcs = state.iqcMaster.filter(i => i.iqcName === name && i.lots.join(', ') === lot);
+    const uniqueExps = [...new Set(relatedIqcs.map(item => item.exps.join(', ')))].filter(String).sort();
+
+    updateSelectOptions('iqcExp', uniqueExps, '-- เลือก EXP --');
+    expSelect.disabled = false;
+  }
+
+  function checkIQCHeader() {
+    const isComplete = document.getElementById('iqcMonth').value && 
+                       document.getElementById('iqcYear').value && 
+                       document.getElementById('iqcName').value && 
+                       document.getElementById('iqcLot').value && 
+                       document.getElementById('iqcExp').value && 
+                       document.getElementById('iqcRecordBy').value;
+
+    const locker = document.getElementById('iqcModeLocker');
+    const btns = document.getElementById('iqcModeButtons');
+    
+    locker.classList.toggle('hidden', isComplete);
+    locker.classList.toggle('flex', !isComplete);
+    btns.classList.toggle('hidden', !isComplete);
+    btns.classList.toggle('flex', isComplete);
+    
+    if (!isComplete) {
+      document.getElementById('iqcModeSelection').classList.remove('hidden');
+      document.getElementById('iqcAiUploadSection').classList.add('hidden');
+      document.getElementById('iqcTableSection').classList.add('hidden');
+      document.getElementById('iqcModalFooter').classList.add('opacity-50', 'pointer-events-none');
+    }
+  }
+
+  function selectIQCMode(mode) {
+    document.getElementById('iqcModeSelection').classList.add('hidden');
+    if (mode === 'MANUAL') {
+      document.getElementById('iqcTableSection').classList.remove('hidden');
+      document.getElementById('iqcModalFooter').classList.remove('opacity-50', 'pointer-events-none');
+      fetchIQCTestsTable(document.getElementById('iqcName').value);
+    } else if (mode === 'AI') {
+      document.getElementById('iqcAiUploadSection').classList.remove('hidden');
+    }
+  }
+
+  function handleIQCFileSelect(e) {
+    const file = e.target.files[0];
+    if (file) processIQCSelectedFile(file);
+  }
+
+  function processIQCSelectedFile(file) {
+    if (file.type !== 'application/pdf') {
+      return showError('รูปแบบไฟล์ไม่ถูกต้อง', 'กรุณาอัปโหลดเอกสารรายงานสรุป IQC ในรูปแบบ PDF เท่านั้นครับ');
+    }
+    state.iqcAiFile = file;
+    document.getElementById('iqcFileNameDisplay').textContent = file.name;
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      state.iqcAiBase64 = e.target.result.split(',')[1];
+      const btn = document.getElementById('btnStartIQCAI');
+      btn.disabled = false;
+      btn.classList.remove('bg-slate-300', 'cursor-not-allowed');
+      btn.classList.add('bg-blue-500', 'hover:bg-blue-600', 'shadow-md');
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function cancelIQCAIMode() {
+    document.getElementById('iqcAiUploadSection').classList.add('hidden');
+    document.getElementById('iqcModeSelection').classList.remove('hidden');
+    state.iqcAiFile = state.iqcAiBase64 = null;
+    document.getElementById('iqcFileNameDisplay').textContent = 'คลิกเพื่อเลือกไฟล์ หรือ ลากไฟล์มาวางที่นี่';
+    document.getElementById('iqcPdfFileInput').value = '';
+    const btn = document.getElementById('btnStartIQCAI');
+    btn.disabled = true;
+    btn.classList.remove('bg-blue-500', 'hover:bg-blue-600', 'shadow-md');
+    btn.classList.add('bg-slate-300', 'cursor-not-allowed');
+  }
+
+  function startIQCAIAnalysis() {
+    const iqcName = document.getElementById('iqcName').value;
+    const iqcInfo = state.iqcMaster.find(i => i.iqcName === iqcName) || {};
+    const targetData = iqcInfo.targetData || '';
+
+    document.getElementById('iqcAiUploadSection').classList.add('hidden');
+    document.getElementById('iqcTableSection').classList.remove('hidden');
+    
+    const loader = document.getElementById('iqcTableLoader');
+    loader.classList.remove('hidden');
+    loader.classList.add('flex');
+    document.getElementById('iqcStandardTableSpinner').classList.add('hidden');
+    document.getElementById('iqcStandardTableSpinner').classList.remove('flex');
+    
+    const dots = document.getElementById('iqcAiAnalyzingDots');
+    dots.classList.remove('hidden');
+    dots.classList.add('flex');
+
+    const progressBar = document.getElementById('iqcAiProgressBar');
+    progressBar.style.width = '30%';
+
+    setTimeout(() => {
+       progressBar.style.width = '70%';
+    }, 1500);
+
+    google.script.run
+      .withSuccessHandler(res => {
+        if (res.success && res.data.length > 0) {
+          state.currentTests = res.data;
+          const testsList = res.data.map(t => t.test);
+
+          progressBar.style.width = '90%';
+
+          google.script.run
+            .withSuccessHandler(aiRes => {
+              if (aiRes.success) {
+                progressBar.style.width = '100%';
+                
+                setTimeout(() => {
+                  loader.classList.add('hidden'); loader.classList.remove('flex');
+
+                  const mergedData = state.currentTests.map(baseTest => {
+                    const aiData = aiRes.data.find(a => a.test.toLowerCase() === baseTest.test.toLowerCase()) || {};
+                    return {
+                      test: baseTest.test,
+                      level_1: aiData.level_1 || {mean:'', sd:'', cv:''},
+                      level_2: aiData.level_2 || {mean:'', sd:'', cv:''},
+                      level_3: aiData.level_3 || {mean:'', sd:'', cv:''}
+                    };
+                  });
+
+                  renderIQCTestsTable(mergedData);
+                  document.getElementById('iqcModalFooter').classList.remove('opacity-50', 'pointer-events-none');
+                  Swal.fire({ icon: 'success', title: 'วิเคราะห์ IQC สำเร็จ', html: 'ดึงข้อมูล Mean/SD/%CV จากระบบรายงานผลรายเดือนแล้ว กรุณาเช็กความเที่ยงตรงก่อนเซฟนะครับ', timer: 3000, showConfirmButton: false, backdrop: `rgba(59, 130, 246, 0.1)`, customClass: { popup: 'rounded-3xl', icon: 'custom-swal-icon' } });
+                }, 800);
+              } else {
+                loader.classList.add('hidden'); loader.classList.remove('flex');
+                handleAIErrorGeneric(aiRes.message, true);
+              }
+            })
+            .withFailureHandler(err => {
+              loader.classList.add('hidden'); loader.classList.remove('flex');
+              handleAIErrorGeneric(err.message, true);
+            })
+            .processIqcPdfWithAI(state.iqcAiBase64, state.iqcAiFile.name, iqcName, state.currentIqcLevels, targetData, testsList); 
+
+        } else {
+          loader.classList.add('hidden'); loader.classList.remove('flex');
+          showError('ไม่พบสารบบการทดสอบ', 'กรุณากำหนดประวัติรายการวิเคราะห์ของ IQC ชนิดนี้ใน MetaData ก่อนครับ');
+          cancelIQCAIMode();
+        }
+      })
+      .withFailureHandler(err => {
+        loader.classList.add('hidden'); loader.classList.remove('flex');
+        handleAIErrorGeneric(err.message, true);
+      })
+      .getTestsForIQC(iqcName, state.currentDeptName); 
+  }
+
+  function fetchIQCTestsTable(iqcName) {
+    const tbody = document.getElementById('iqcTestsTableBody');
+    const loader = document.getElementById('iqcTableLoader');
+    
+    document.getElementById('iqcAiAnalyzingDots').classList.add('hidden');
+    document.getElementById('iqcAiAnalyzingDots').classList.remove('flex');
+    document.getElementById('iqcStandardTableSpinner').classList.remove('hidden');
+    document.getElementById('iqcStandardTableSpinner').classList.add('flex');
+    
+    loader.classList.remove('hidden'); loader.classList.add('flex');
+    tbody.innerHTML = '';
+
+    google.script.run
+      .withSuccessHandler(res => {
+        loader.classList.add('hidden'); loader.classList.remove('flex');
+        if (res.success && res.data.length > 0) {
+          state.currentTests = res.data;
+          renderIQCTestsTable(res.data.map(t => ({ 
+             test: t.test, 
+             level_1: {mean:'', sd:'', cv:''}, 
+             level_2: {mean:'', sd:'', cv:''}, 
+             level_3: {mean:'', sd:'', cv:''} 
+          })));
+        } else {
+          tbody.innerHTML = `<tr><td colspan="10" class="py-12 text-center text-red-400"><i class="fa-solid fa-circle-exclamation text-4xl mb-3 opacity-80"></i><p>ไม่พบรายการวิเคราะห์ของสระ IQC ในกลุ่ม MetaData</p></td></tr>`;
+        }
+      })
+      .withFailureHandler(err => {
+        loader.classList.add('hidden'); loader.classList.remove('flex');
+        showError('ดึงข้อมูลระบบการทดสอบผิดพลาด', err.message);
+      })
+      .getTestsForIQC(iqcName, state.currentDeptName); 
+  }
+
+  function renderIQCTestsTable(testsData) {
+    const thead = document.getElementById('iqcTableHeader');
+    const tbody = document.getElementById('iqcTestsTableBody');
+    
+    let theadHtml = `<tr><th class="py-4 px-4 font-semibold w-[20%] border-r border-slate-200 text-slate-700">Test Name</th>`;
+    for(let i=1; i<=state.currentIqcLevels; i++) {
+        theadHtml += `<th class="py-4 px-2 font-semibold text-center border-r border-slate-200 header-level-${i}">Level ${i} (Mean)</th>
+                      <th class="py-4 px-2 font-semibold text-center border-r border-slate-200 header-level-${i}">Level ${i} (SD)</th>
+                      <th class="py-4 px-2 font-semibold text-center border-r border-slate-200 header-level-${i}">Level ${i} (%CV)</th>`;
+    }
+    theadHtml += `</tr>`;
+    thead.innerHTML = theadHtml;
+    
+    tbody.innerHTML = '';
+    testsData.forEach(item => {
+       const tr = document.createElement('tr');
+       tr.className = 'hover:bg-slate-50/50 transition-colors';
+       
+       let colsHtml = `<td class="py-3 px-4 font-semibold text-slate-700 border-r border-slate-100">
+            ${item.test}
+            <input type="hidden" class="iqc-row-test-name" value="${item.test}">
+       </td>`;
+       
+       for(let i=1; i<=state.currentIqcLevels; i++) {
+           const levelData = item[`level_${i}`] || {mean:'', sd:'', cv:''};
+           colsHtml += `
+             <td class="py-3 px-2 border-r border-slate-100"><input type="number" step="any" class="iqc-mean-${i} w-full form-input rounded-lg text-sm font-mono text-emerald-700 px-2" placeholder="Mean" value="${levelData.mean}"></td>
+             <td class="py-3 px-2 border-r border-slate-100"><input type="number" step="any" class="iqc-sd-${i} w-full form-input rounded-lg text-sm font-mono text-orange-600 px-2" placeholder="SD" value="${levelData.sd}"></td>
+             <td class="py-3 px-2 border-r border-slate-100"><input type="number" step="any" class="iqc-cv-${i} w-full form-input rounded-lg text-sm font-mono text-blue-700 px-2" placeholder="%CV" value="${levelData.cv}"></td>
+           `;
+       }
+       tr.innerHTML = colsHtml;
+       tbody.appendChild(tr);
+    });
+  }
+
+  function submitIQCForm() {
+    const payload = {
+      deptName: state.currentDeptName, 
+      month: document.getElementById('iqcMonth').value,
+      year: document.getElementById('iqcYear').value,
+      iqcName: document.getElementById('iqcName').value,
+      lots: [document.getElementById('iqcLot').value], 
+      exps: [document.getElementById('iqcExp').value],
+      recordBy: document.getElementById('iqcRecordBy').value,
+      tests: []
+    };
+
+    const tbody = document.getElementById('iqcTestsTableBody');
+    const rows = tbody.querySelectorAll('tr');
+    
+    if (rows.length === 0 || !tbody.querySelector('.iqc-row-test-name')) {
+      return Swal.fire({ icon: 'warning', title: 'ไม่พบคะแนนวิเคราะห์', text: 'กรุณากรอกโครงสร้างอย่างน้อยหนึ่งรายการ', confirmButtonColor: '#3b82f6', customClass: { popup: 'rounded-3xl', icon: 'custom-swal-icon' } });
+    }
+
+    let hasInput = false;
+
+    rows.forEach(row => {
+      const testNameInput = row.querySelector('.iqc-row-test-name');
+      if (testNameInput) {
+        const testName = testNameInput.value;
+        const testObj = { test: testName };
+        
+        let rowHasData = false;
+        for(let i=1; i<=state.currentIqcLevels; i++) {
+           const meanInput = row.querySelector(`.iqc-mean-${i}`);
+           const sdInput = row.querySelector(`.iqc-sd-${i}`);
+           const cvInput = row.querySelector(`.iqc-cv-${i}`);
+           
+           if (meanInput) {
+             const m = meanInput.value.trim();
+             const s = sdInput.value.trim();
+             const c = cvInput.value.trim();
+             testObj[`level_${i}`] = { mean: m, sd: s, cv: c };
+             if (m || s || c) rowHasData = true;
+           }
+        }
+        
+        if (rowHasData) {
+           payload.tests.push(testObj);
+           hasInput = true;
+        }
+      }
+    });
+
+    if (!hasInput) {
+      return Swal.fire({ icon: 'warning', title: 'ตารางว่างเปล่า', text: 'กรุณากรอกข้อมูลเชิงสถิติอย่างน้อย 1 รายการเพื่อคำนวณเสถียรภาพรายเดือน', confirmButtonColor: '#3b82f6', customClass: { popup: 'rounded-3xl', icon: 'custom-swal-icon' } });
+    }
+
+    Swal.fire({
+      title: `บันทึกสถิติความเที่ยงตรงรายเดือน?`, text: `คุณกำลังทำการส่งข้อมูลสถิติของ ${payload.tests.length} สารควบคุมคุณภาพภายใน`,
+      icon: 'question', showCancelButton: true, confirmButtonColor: '#3b82f6', cancelButtonColor: '#94a3b8',
+      confirmButtonText: `ใช่, ทำการบันทึก`, cancelButtonText: 'ตรวจสอบความถูกต้องอีกครั้ง', customClass: { popup: 'rounded-3xl', icon: 'custom-swal-icon' }
+    }).then((result) => {
+      if (result.isConfirmed) {
+        Swal.fire({ title: `เข้ารหัสและจัดเก็บฐานข้อมูล IQC...`, allowOutsideClick: false, didOpen: () => Swal.showLoading(), customClass: { popup: 'rounded-3xl', icon: 'custom-swal-icon' } });
+        google.script.run
+          .withSuccessHandler(res => {
+            if (res.success) {
+              Swal.fire({ icon: 'success', title: `บันทึกสถิติสำเร็จ!`, html: `ข้อมูลความคลาดเคลื่อนถูกนำฝากในประวัติเรียบร้อย`, confirmButtonColor: '#3b82f6', customClass: { popup: 'rounded-3xl', icon: 'custom-swal-icon' } }).then(() => { closeIQCModal(); loadMonitoringData(); });
+            } else { showError(`บันทึกไม่สำเร็จ`, res.message); }
+          })
+          .withFailureHandler(err => showError('ข้อผิดพลาดเครือข่าย', err.message))
+          .saveIQCRecord(payload);
+      }
+    });
+  }
+
+  // ==========================================
+  // 9. Monitoring & Dynamic Calculations
+  // ==========================================
+  function setupYearDropdowns() {
+    const currentYear = new Date().getFullYear();
+    const startYear = 2024; 
+    const maxYear = Math.max(currentYear, startYear);
+    
+    ['filterYearAccuracy', 'filterYearIQC', 'filterYearPrecision'].forEach(id => {
+       const select = document.getElementById(id);
+       if (select) {
+         select.innerHTML = '';
+         for (let y = maxYear; y >= startYear; y--) {
+           select.insertAdjacentHTML('beforeend', `<option value="${y}">${y}</option>`);
+         }
+       }
+    });
+
+    const iqcYearSelect = document.getElementById('iqcYear');
+    if (iqcYearSelect) {
+      iqcYearSelect.innerHTML = '<option value="">-- เลือกปีประเมิน --</option>';
+      for (let y = maxYear; y >= startYear; y--) {
+        iqcYearSelect.insertAdjacentHTML('beforeend', `<option value="${y}">${y}</option>`);
+      }
+    }
+  }
+
+  function loadMonitoringData() {
+    if(!checkDeptSelected()) return;
+
+    if (state.monitoringData) {
+      renderAccuracy();
+      renderIQC();
+      renderPrecision();
+      return;
+    }
+    
+    const loaders = ['accuracyLoader', 'iqcLoader', 'precisionLoader'];
+    loaders.forEach(id => {
+       const el = document.getElementById(id);
+       if(el) { el.classList.remove('hidden'); el.classList.add('flex'); }
+    });
+    
+    google.script.run
+      .withSuccessHandler(res => {
+        loaders.forEach(id => {
+           const el = document.getElementById(id);
+           if(el) { el.classList.add('hidden'); el.classList.remove('flex'); }
+        });
+        if (res.success) {
+          state.monitoringData = res;
+          renderAccuracy();
+          renderIQC();
+          renderPrecision();
+        } else {
+          showError('เกิดข้อผิดพลาดในการโหลดประวัติ', res.message);
+        }
+      })
+      .withFailureHandler(err => {
+        loaders.forEach(id => {
+           const el = document.getElementById(id);
+           if(el) { el.classList.add('hidden'); el.classList.remove('flex'); }
+        });
+        showError('ข้อผิดพลาดเครือข่าย', err.message);
+      })
+      .getMonitoringData(state.currentDeptName); 
+  }
+
+  function parseTEa(teaString, targetValue) {
+    if (!teaString) return 0;
+    let teaPct = 0;
+    let teaAbs = 0;
+    
+    const pctRegex = /([\d\.]+)\s*%/;
+    const pctMatch = teaString.match(pctRegex);
+    if (pctMatch) teaPct = parseFloat(pctMatch[1]);
+    
+    let tempStr = teaString.replace(pctRegex, '');
+    const absMatch = tempStr.match(/([\d\.]+)/);
+    if (absMatch) teaAbs = parseFloat(absMatch[1]);
+    
+    let calculatedPctFromAbs = 0;
+    if (targetValue && targetValue !== 0 && teaAbs > 0) {
+        calculatedPctFromAbs = (teaAbs / targetValue) * 100;
+    }
+    
+    if (teaString.toLowerCase().includes('greater') || teaString.toLowerCase().includes('or')) {
+        return Math.max(teaPct, calculatedPctFromAbs);
+    }
+    return teaPct > 0 ? teaPct : calculatedPctFromAbs;
+  }
+
+  function parseControlLimit(limitString, finalTeaPct) {
+    if (!limitString) return 0;
+    const match = limitString.match(/([\d\.]+)/);
+    if (!match) return Math.abs(finalTeaPct); 
+    
+    const multiplier = parseFloat(match[1]);
+    if (limitString.toLowerCase().includes('tea') || multiplier < 10) {
+         return finalTeaPct * multiplier;
+    }
+    return multiplier;
+  }
+
+  function toggleIQCLevel(level) {
+    state.currentIqcLevelFilter = level;
+    
+    const config = {
+      1: { bg: 'bg-blue-500', activeHoverBg: 'hover:bg-blue-600', hoverBg: 'hover:bg-blue-50', textHover: 'hover:text-blue-600' },
+      2: { bg: 'bg-emerald-500', activeHoverBg: 'hover:bg-emerald-600', hoverBg: 'hover:bg-emerald-50', textHover: 'hover:text-emerald-600' },
+      3: { bg: 'bg-purple-500', activeHoverBg: 'hover:bg-purple-600', hoverBg: 'hover:bg-purple-50', textHover: 'hover:text-purple-600' }
+    };
+
+    [1, 2, 3].forEach(l => {
+      const btn = document.getElementById(`btnIqcLevel${l}`);
+      if (!btn) return;
+      btn.className = btn.className.replace(/\b(bg-\w+-500|hover:bg-\w+-(600|50)|text-white|shadow-sm|hover:text-\w+-600)\b/g, '').trim();
+
+      if (l === level) {
+        btn.classList.add('text-white', 'shadow-sm', config[l].bg, config[l].activeHoverBg);
+      } else {
+        btn.classList.add('text-slate-500', config[l].hoverBg, config[l].textHover);
+      }
+    });
+
+    renderIQC();
+  }
+
+  function renderIQC() {
+    const selectedYear = parseInt(document.getElementById('filterYearIQC').value);
+    const tbody = document.getElementById('iqcTableBody');
+    const emptyState = document.getElementById('iqcEmptyState');
+    tbody.innerHTML = '';
+    
+    if (!state.monitoringData || !state.monitoringData.tests || state.monitoringData.tests.length === 0) {
+      emptyState.classList.remove('hidden'); emptyState.classList.add('flex');
+      return;
+    }
+    emptyState.classList.add('hidden');
+
+    let rowIdx = 1;
+    const lvl = state.currentIqcLevelFilter;
+
+    state.monitoringData.tests.forEach(testInfo => {
+      const testRecords = (state.monitoringData.iqcRecords || []).filter(r => r.test === testInfo.test && parseInt(r.year) === selectedYear);
+      const monthlyData = new Array(12).fill(null);
+      
+      testRecords.forEach(r => {
+         const mIdx = parseInt(r.month) - 1; 
+         if (mIdx >= 0 && mIdx <= 11) {
+            let mVal = r[`mean${lvl}`];
+            let sVal = r[`sd${lvl}`];
+            let cVal = r[`cv${lvl}`];
+
+            monthlyData[mIdx] = {
+               mean: mVal !== null && mVal !== '' && !isNaN(parseFloat(mVal)) ? parseFloat(mVal).toFixed(2) : '-',
+               sd: sVal !== null && sVal !== '' && !isNaN(parseFloat(sVal)) ? parseFloat(sVal).toFixed(2) : '-',
+               cv: cVal !== null && cVal !== '' && !isNaN(parseFloat(cVal)) ? parseFloat(cVal).toFixed(2) : '-'
+            };
+         }
+      });
+
+      let monthColsHtml = '';
+      monthlyData.forEach(data => {
+         if (data && (data.mean !== '-' || data.sd !== '-' || data.cv !== '-')) {
+           monthColsHtml += `
+             <td class="py-4 px-1 border-b border-slate-100 text-center align-middle">
+               <div class="flex flex-col items-center justify-center space-y-2 min-h-[4rem] w-full mx-auto animate-fade-in">
+                 <span class="text-sm text-emerald-600 font-mono font-semibold leading-none">${data.mean !== '-' ? data.mean : '-'}</span>
+                 <span class="text-sm text-orange-500 font-mono font-semibold leading-none">${data.sd !== '-' ? data.sd : '-'}</span>
+                 <span class="text-sm text-blue-700 font-mono font-bold leading-none">${data.cv !== '-' ? data.cv : '-'}</span>
+               </div>
+             </td>
+           `;
+         } else {
+           monthColsHtml += `<td class="py-4 px-1 border-b border-slate-100 text-center align-middle"><div class="text-slate-300 text-2xl font-light min-h-[4rem] flex items-center justify-center">-</div></td>`;
+         }
+      });
+
+      const iqcLabel = `{${testInfo.iqcNameStr || '-'}, ${testInfo.iqcCompany || '-'}}`;
+
+      const tr = document.createElement('tr');
+      tr.className = 'hover:bg-blue-50/30 transition-colors group/row';
+      tr.innerHTML = `
+        <td class="py-4 px-2 border-b border-slate-100 text-center text-slate-400 font-medium">${rowIdx++}</td>
+        <td class="py-4 px-4 border-b border-slate-100 border-r border-slate-200">
+          <div class="font-bold text-slate-700 text-sm group-hover/row:text-blue-600 transition-colors truncate max-w-[200px]" title="${testInfo.test}">${testInfo.test}</div>
+          <div class="text-[10px] text-slate-400 mt-0.5"><i class="fa-solid fa-microchip"></i> ${testInfo.machine || '-'}</div>
+          <div class="text-[10px] text-blue-500 font-medium mt-0.5 truncate max-w-[200px] cursor-pointer" title="${iqcLabel}">${iqcLabel}</div>
+        </td>
+        <td class="py-4 px-4 border-b border-slate-100 border-r border-slate-200 text-center text-xs text-slate-600 font-medium">
+          ${testInfo.method || '-'}
+        </td>
+        <td class="py-4 px-2 border-b border-slate-100 border-r border-slate-200 text-center align-middle">
+          <div class="flex flex-col items-center justify-center space-y-2 min-h-[4rem]">
+             <span class="text-[11px] text-emerald-600 font-bold uppercase tracking-wide leading-none">Mean</span>
+             <span class="text-[11px] text-orange-500 font-bold uppercase tracking-wide leading-none">SD</span>
+             <span class="text-[11px] text-blue-700 font-bold uppercase tracking-wide leading-none">%CV</span>
+          </div>
+        </td>
+        ${monthColsHtml}
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  function togglePrecisionLevel(level) {
+    state.currentPreLevelFilter = level;
+    
+    const config = {
+      1: { bg: 'bg-indigo-500', activeHoverBg: 'hover:bg-indigo-600', hoverBg: 'hover:bg-indigo-50', textHover: 'hover:text-indigo-600' },
+      2: { bg: 'bg-emerald-500', activeHoverBg: 'hover:bg-emerald-600', hoverBg: 'hover:bg-emerald-50', textHover: 'hover:text-emerald-600' },
+      3: { bg: 'bg-purple-500', activeHoverBg: 'hover:bg-purple-600', hoverBg: 'hover:bg-purple-50', textHover: 'hover:text-purple-600' }
+    };
+
+    [1, 2, 3].forEach(l => {
+      const btn = document.getElementById(`btnPreLevel${l}`);
+      if (!btn) return;
+      btn.className = btn.className.replace(/\b(bg-\w+-500|hover:bg-\w+-(600|50|100)|text-white|shadow-sm|hover:text-\w+-600)\b/g, '').trim();
+
+      if (l === level) {
+        btn.classList.add('text-white', 'shadow-sm', config[l].bg, config[l].activeHoverBg);
+      } else {
+        btn.classList.add('text-slate-500', config[l].hoverBg, config[l].textHover);
+      }
+    });
+
+    if (!document.getElementById('precisionGraphMode').classList.contains('hidden')) {
+      setTimeout(renderPrecisionGraph, 100);
+    } else {
+      renderPrecision();
+    }
+  }
+
+  function updatePrecisionMonitoringHeader() {
+    const selectedYear = parseInt(document.getElementById('filterYearPrecision').value);
+    const lvl = state.currentPreLevelFilter;
+    let totalCV = 0;
+    let compliantCV = 0;
+    
+    if (state.monitoringData && state.monitoringData.tests) {
+      state.monitoringData.tests.forEach(testInfo => {
+        const testIqcRecords = (state.monitoringData.iqcRecords || []).filter(r => r.test === testInfo.test && parseInt(r.year) === selectedYear);
+        
+        let latestTarget = 0;
+        const allRecordsForTest = state.monitoringData.records.filter(r => r.test === testInfo.test);
+        if (allRecordsForTest.length > 0) {
+          const sortedRecords = [...allRecordsForTest].sort((a, b) => b.timestamp - a.timestamp);
+          const latestRecord = sortedRecords.find(r => r.target !== null && r.target !== '');
+          if (latestRecord) latestTarget = parseFloat(latestRecord.target);
+        }
+        const finalTEa = parseTEa(testInfo.tea, latestTarget);
+        const finalControlLimit = parseControlLimit(testInfo.controlLimit, finalTEa);
+        
+        testIqcRecords.forEach(r => {
+          let cvRaw = r[`cv${lvl}`];
+          if (cvRaw !== null && cvRaw !== '' && !isNaN(parseFloat(cvRaw))) {
+            totalCV++;
+            if (parseFloat(cvRaw) <= finalControlLimit) {
+              compliantCV++;
+            }
+          }
+        });
+      });
+    }
+    
+    const passPercent = totalCV > 0 ? (compliantCV / totalCV) * 100 : 0;
+    const el = document.getElementById('monitoringPrecisionPassPercent');
+    if (el) el.textContent = `${passPercent.toFixed(1)}%`;
+  }
+
+  function renderPrecision() {
+    const selectedYear = parseInt(document.getElementById('filterYearPrecision').value);
+    const tbody = document.getElementById('precisionTableBody');
+    const emptyState = document.getElementById('precisionEmptyState');
+    tbody.innerHTML = '';
+    
+    if (!state.monitoringData || !state.monitoringData.tests || state.monitoringData.tests.length === 0) {
+      emptyState.classList.remove('hidden'); emptyState.classList.add('flex');
+      return;
+    }
+    emptyState.classList.add('hidden');
+
+    let rowIdx = 1;
+    const lvl = state.currentPreLevelFilter;
+
+    state.monitoringData.tests.forEach(testInfo => {
+      const eqaRecordsForTest = (state.monitoringData.records || []).filter(r => r.test === testInfo.test);
+      let latestTarget = 0;
+      if (eqaRecordsForTest.length > 0) {
+        const sortedRecords = [...eqaRecordsForTest].sort((a, b) => b.timestamp - a.timestamp);
+        const latestRecord = sortedRecords.find(r => r.target !== null && r.target !== '');
+        if (latestRecord) latestTarget = parseFloat(latestRecord.target);
+      }
+      
+      const finalTEa = parseTEa(testInfo.tea, latestTarget);
+      const finalControlLimit = parseControlLimit(testInfo.controlLimit, finalTEa);
+
+      const testIqcRecords = (state.monitoringData.iqcRecords || []).filter(r => r.test === testInfo.test && parseInt(r.year) === selectedYear);
+      const monthlyCV = new Array(12).fill(null);
+      
+      testIqcRecords.forEach(r => {
+         const mIdx = parseInt(r.month) - 1; 
+         let cvRaw = r[`cv${lvl}`];
+         if (mIdx >= 0 && mIdx <= 11 && cvRaw !== null && cvRaw !== '' && !isNaN(parseFloat(cvRaw))) {
+            monthlyCV[mIdx] = parseFloat(cvRaw);
+         }
+      });
+
+      let monthColsHtml = '';
+      monthlyCV.forEach(cvVal => {
+        let cvValStr = '-';
+        let cellClass = 'text-slate-300 text-2xl font-light';
+        let wrapperClass = 'h-8 flex items-center justify-center px-1 mx-1 transition-colors';
+        
+        if (cvVal !== null && !isNaN(cvVal)) {
+          cvValStr = cvVal.toFixed(2);
+          if (cvVal > finalControlLimit) {
+            cellClass = 'bg-red-100 text-red-700 font-bold rounded-lg border border-red-200 shadow-sm text-sm';
+          } else {
+            cellClass = 'text-blue-700 font-bold bg-blue-50/50 rounded-lg border border-blue-100 shadow-sm text-sm';
+          }
+          wrapperClass = `h-8 flex items-center justify-center px-1 mx-1 ${cellClass} font-mono transition-colors animate-fade-in`;
+          
+          monthColsHtml += `
+            <td class="py-2.5 px-1 border-b border-slate-100 text-center">
+               <div class="${wrapperClass}">
+                 ${cvValStr}
+               </div>
+            </td>
+          `;
+        } else {
+          monthColsHtml += `<td class="py-2.5 px-1 border-b border-slate-100 text-center"><div class="text-slate-300 text-2xl font-light">-</div></td>`;
+        }
+      });
+
+      const iqcLabel = `{${testInfo.iqcNameStr || '-'}, ${testInfo.iqcCompany || '-'}}`;
+
+      const tr = document.createElement('tr');
+      tr.className = 'hover:bg-brand-50/40 transition-colors group/row';
+      tr.innerHTML = `
+        <td class="py-4 px-2 border-b border-slate-100 text-center text-slate-400 font-medium">${rowIdx++}</td>
+        <td class="py-4 px-4 border-b border-slate-100 border-r border-slate-200">
+          <div class="font-bold text-slate-700 text-sm group-hover/row:text-brand-600 transition-colors truncate max-w-[200px]" title="${testInfo.test}">${testInfo.test}</div>
+          <div class="text-[10px] text-slate-400 mt-0.5"><i class="fa-solid fa-microchip"></i> ${testInfo.machine || '-'}</div>
+          <div class="text-[10px] text-brand-500 font-medium mt-0.5 truncate max-w-[200px] cursor-pointer" title="${iqcLabel}">${iqcLabel}</div>
+        </td>
+        <td class="py-4 px-2 border-b border-slate-100 border-r border-slate-200 text-center relative w-[8%] p-0">
+          <div class="relative w-full h-full min-h-[3rem] flex items-center justify-center group cursor-pointer overflow-visible px-2">
+            <span class="font-medium text-slate-600 font-mono">${finalTEa.toFixed(2)}%</span>
+            <div class="absolute top-full mt-2 left-1/2 -translate-x-1/2 z-50 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300 bg-white/95 backdrop-blur-md text-brand-700 text-xs font-bold py-2 px-4 border border-brand-200 rounded-xl shadow-xl whitespace-nowrap">
+              <div class="absolute -top-[7px] left-1/2 -translate-x-1/2 border-8 border-transparent border-b-white"></div>
+              ${testInfo.teaBy || '-'}
+            </div>
+          </div>
+        </td>
+        <td class="py-4 px-2 border-b border-slate-100 border-r border-slate-200 bg-brand-50/20 text-center relative w-[9%] p-0">
+          <div class="relative w-full h-full min-h-[3rem] flex items-center justify-center group cursor-pointer overflow-visible px-2">
+            <span class="font-bold text-brand-700 font-mono">${finalControlLimit.toFixed(2)}</span>
+            <div class="absolute top-full mt-2 left-1/2 -translate-x-1/2 z-50 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300 bg-white/95 backdrop-blur-md text-blue-700 text-xs font-bold py-2 px-4 border border-blue-200 rounded-xl shadow-xl whitespace-nowrap">
+              <div class="absolute -top-[7px] left-1/2 -translate-x-1/2 border-8 border-transparent border-b-white"></div>
+              ${testInfo.controlLimit || '-'}
+            </div>
+          </div>
+        </td>
+        ${monthColsHtml}
+      `;
+      tbody.appendChild(tr);
+    });
+
+    // เรียกประมวลผลสรุปยอดสะสม (CV%) เสมอ
+    updatePrecisionMonitoringHeader();
+
+    if (!document.getElementById('precisionGraphMode').classList.contains('hidden')) {
+      setTimeout(renderPrecisionGraph, 100);
+    }
+  }
+
+  function updateAccuracyMonitoringHeader() {
+    const selectedYear = parseInt(document.getElementById('filterYearAccuracy').value);
+    let totalTests = 0;
+    let acceptableCount = 0;
+    
+    if (state.dashboardStats && state.dashboardStats.eqaSummary) {
+      const yearFiltered = state.dashboardStats.eqaSummary.filter(r => parseInt(r.recordYear) === selectedYear);
+      yearFiltered.forEach(r => {
+        totalTests += r.totalTests;
+        acceptableCount += r.acceptableCount;
+      });
+    }
+    
+    const passPercent = totalTests > 0 ? (acceptableCount / totalTests) * 100 : 0;
+    const el = document.getElementById('monitoringAccuracyPassPercent');
+    if (el) el.textContent = `${passPercent.toFixed(1)}%`;
+  }
+
+  function renderAccuracy() {
+    const selectedYear = parseInt(document.getElementById('filterYearAccuracy').value);
+    const tbody = document.getElementById('accuracyTableBody');
+    const emptyState = document.getElementById('accuracyEmptyState');
+    tbody.innerHTML = '';
+    
+    if (!state.monitoringData || !state.monitoringData.tests || state.monitoringData.tests.length === 0) {
+      emptyState.classList.remove('hidden'); emptyState.classList.add('flex');
+      return;
+    }
+    emptyState.classList.add('hidden');
+
+    let rowIdx = 1;
+    state.monitoringData.tests.forEach(testInfo => {
+      const allRecordsForTest = state.monitoringData.records.filter(r => r.test === testInfo.test);
+      const recordsForYear = allRecordsForTest.filter(r => new Date(r.timestamp).getFullYear() === selectedYear);
+      
+      let latestTarget = 0;
+      if (allRecordsForTest.length > 0) {
+        const sortedRecords = [...allRecordsForTest].sort((a, b) => b.timestamp - a.timestamp);
+        const latestRecord = sortedRecords.find(r => r.target !== null && r.target !== '');
+        if (latestRecord) latestTarget = parseFloat(latestRecord.target);
+      }
+
+      const finalTEa = parseTEa(testInfo.tea, latestTarget);
+      const finalControlLimit = parseControlLimit(testInfo.controlLimit, finalTEa);
+
+      const monthlyBias = new Array(12).fill(null);
+      recordsForYear.forEach(r => {
+        if (r.bias !== null && r.bias !== '') {
+          const m = new Date(r.timestamp).getMonth(); 
+          monthlyBias[m] = parseFloat(r.bias);
+        }
+      });
+
+      let monthColsHtml = '';
+      monthlyBias.forEach(biasVal => {
+        let biasValStr = '-';
+        let cellClass = 'text-slate-400';
+        
+        if (biasVal !== null && !isNaN(biasVal)) {
+          let absBias = Math.abs(biasVal);
+          biasValStr = absBias.toFixed(2);
+          if (absBias > finalControlLimit) {
+            cellClass = 'bg-red-100 text-red-700 font-bold rounded-lg border border-red-200 shadow-sm';
+          } else {
+            cellClass = 'text-slate-700 font-medium';
+          }
+        }
+        
+        monthColsHtml += `
+          <td class="py-2.5 px-1 border-b border-slate-100 text-center">
+             <div class="h-8 flex items-center justify-center px-1 mx-1 ${cellClass} font-mono transition-colors animate-fade-in">
+               ${biasValStr}
+             </div>
+          </td>
+        `;
+      });
+
+      const tr = document.createElement('tr');
+      tr.className = 'hover:bg-brand-50/40 transition-colors group/row';
+      tr.innerHTML = `
+        <td class="py-4 px-2 border-b border-slate-100 text-center text-slate-400 font-medium">${rowIdx++}</td>
+        <td class="py-4 px-4 border-b border-slate-100 border-r border-slate-200">
+          <div class="font-bold text-slate-700 text-sm group-hover/row:text-brand-600 transition-colors truncate max-w-[200px]" title="${testInfo.test}">${testInfo.test}</div>
+          <div class="text-[10px] text-slate-400 mt-0.5"><i class="fa-solid fa-microchip"></i> ${testInfo.machine}</div>
+          <div class="text-[10px] text-brand-500 font-medium mt-0.5 truncate max-w-[200px] cursor-pointer" title="{${testInfo.eqaShortName || '-'}, ${testInfo.eqaCompany || '-'}}">{${testInfo.eqaShortName || '-'}, ${testInfo.eqaCompany || '-'}}</div>
+        </td>
+        <td class="py-4 px-2 border-b border-slate-100 border-r border-slate-200 text-center relative w-[8%] p-0">
+          <div class="relative w-full h-full min-h-[3rem] flex items-center justify-center group cursor-pointer overflow-visible px-2">
+            <span class="font-medium text-slate-600 font-mono">${finalTEa.toFixed(2)}%</span>
+            <div class="absolute top-full mt-2 left-1/2 -translate-x-1/2 z-50 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300 bg-white/95 backdrop-blur-md text-brand-700 text-xs font-bold py-2 px-4 border border-brand-200 rounded-xl shadow-xl whitespace-nowrap">
+              <div class="absolute -top-[7px] left-1/2 -translate-x-1/2 border-8 border-transparent border-b-white"></div>
+              ${testInfo.teaBy || '-'}
+            </div>
+          </div>
+        </td>
+        <td class="py-4 px-2 border-b border-slate-100 border-r border-slate-200 bg-brand-50/20 text-center relative w-[9%] p-0">
+          <div class="relative w-full h-full min-h-[3rem] flex items-center justify-center group cursor-pointer overflow-visible px-2">
+            <span class="font-bold text-brand-700 font-mono">${finalControlLimit.toFixed(2)}</span>
+            <div class="absolute top-full mt-2 left-1/2 -translate-x-1/2 z-50 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300 bg-white/95 backdrop-blur-md text-blue-700 text-xs font-bold py-2 px-4 border border-blue-200 rounded-xl shadow-xl whitespace-nowrap">
+              <div class="absolute -top-[7px] left-1/2 -translate-x-1/2 border-8 border-transparent border-b-white"></div>
+              ${testInfo.controlLimit || '-'}
+            </div>
+          </div>
+        </td>
+        ${monthColsHtml}
+      `;
+      tbody.appendChild(tr);
+    });
+
+    // เรียกประมวลสรุปยอดสะสม (EQA) เสมอ
+    updateAccuracyMonitoringHeader();
+
+    if (!document.getElementById('accuracyGraphMode').classList.contains('hidden')) {
+      setTimeout(renderAccuracyGraph, 100);
+    }
+  }
+
+  function recreateCanvas(canvasId) {
+    const oldCanvas = document.getElementById(canvasId);
+    if (oldCanvas) {
+      const newCanvas = document.createElement('canvas');
+      newCanvas.id = canvasId;
+      oldCanvas.parentNode.replaceChild(newCanvas, oldCanvas);
+      return newCanvas;
+    }
+    return null;
+  }
+
+  function renderAccuracyGraph() {
+    const selectedTest = document.getElementById('graphTestSelectAccuracy').value;
+    const selectedYear = parseInt(document.getElementById('filterYearAccuracy').value);
+    
+    if (!selectedTest) {
+      document.getElementById('accuracyChartCanvas').classList.add('hidden');
+      document.getElementById('accuracyChartEmpty').classList.remove('hidden');
+      document.getElementById('accuracyGraphLegend').classList.add('hidden');
+      return;
+    }
+    
+    document.getElementById('accuracyChartCanvas').classList.remove('hidden');
+    document.getElementById('accuracyChartEmpty').classList.add('hidden');
+    document.getElementById('accuracyGraphLegend').classList.remove('hidden');
+    
+    document.getElementById('accuracyGraphLegend').innerHTML = `
+        <div class="flex items-center gap-2">
+          <svg width="24" height="6" xmlns="http://www.w3.org/2000/svg"><line x1="0" y1="3" x2="24" y2="3" stroke="#ef4444" stroke-width="2" stroke-dasharray="5,5"/></svg> 
+          เกณฑ์ควบคุม
+        </div>
+        <div class="flex items-center gap-2"><span class="w-3 h-3 bg-blue-500 rounded-full inline-block shadow-sm"></span> Absolute %Bias (ผ่าน)</div>
+        <div class="flex items-center gap-2"><span class="w-3 h-3 bg-red-500 rounded-full inline-block shadow-sm"></span> Absolute %Bias (เกินเกณฑ์)</div>
+    `;
+
+    const testInfo = state.monitoringData.tests.find(t => t.test === selectedTest) || {};
+    const allRecordsForTest = state.monitoringData.records.filter(r => r.test === selectedTest);
+    const recordsForYear = allRecordsForTest.filter(r => new Date(r.timestamp).getFullYear() === selectedYear);
+    
+    let latestTarget = 0;
+    if (allRecordsForTest.length > 0) {
+      const sortedRecords = [...allRecordsForTest].sort((a, b) => b.timestamp - a.timestamp);
+      const latestRecord = sortedRecords.find(r => r.target !== null && r.target !== '');
+      if (latestRecord) latestTarget = parseFloat(latestRecord.target);
+    }
+
+    const finalTEa = parseTEa(testInfo.tea, latestTarget);
+    const finalControlLimit = parseControlLimit(testInfo.controlLimit, finalTEa);
+
+    const monthlyBias = new Array(12).fill(null);
+    recordsForYear.forEach(r => {
+      if (r.bias !== null && r.bias !== '') {
+        const m = new Date(r.timestamp).getMonth(); 
+        monthlyBias[m] = Math.abs(parseFloat(r.bias)); 
+      }
+    });
+
+    const labels = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+    const controlLimitData = new Array(12).fill(finalControlLimit);
+
+    const validBiases = monthlyBias.filter(b => b !== null && !isNaN(b));
+    let maxBias = validBiases.length > 0 ? Math.max(...validBiases) : 0;
+    let yMaxLimit = undefined; 
+    
+    if (maxBias > finalControlLimit * 2.5) {
+        yMaxLimit = finalControlLimit * 2.5;
+    }
+
+    if (state.accuracyChart) {
+      state.accuracyChart.destroy();
+      state.accuracyChart = null;
+    }
+
+    recreateCanvas('accuracyChartCanvas');
+    const ctx = document.getElementById('accuracyChartCanvas').getContext('2d');
+
+    state.accuracyChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            label: 'เกณฑ์ควบคุม (Control Limit)',
+            data: controlLimitData,
+            borderColor: '#ef4444', 
+            borderWidth: 2,
+            borderDash: [5, 5],
+            pointRadius: 0,
+            fill: false,
+            tension: 0
+          },
+          {
+            label: 'Absolute %Bias',
+            data: monthlyBias,
+            segment: {
+                borderColor: context => (context.p0.parsed.y > finalControlLimit || context.p1.parsed.y > finalControlLimit) ? '#ef4444' : '#3b82f6',
+            },
+            backgroundColor: function(context) {
+                const chart = context.chart;
+                const {ctx: canvasCtx, chartArea, scales} = chart;
+                if (!chartArea) return 'rgba(59, 130, 246, 0.1)';
+                
+                const yLimitPixel = scales.y.getPixelForValue(finalControlLimit);
+                const top = chartArea.top;
+                const bottom = chartArea.bottom;
+                
+                let gradient = canvasCtx.createLinearGradient(0, top, 0, bottom);
+                let offset = (yLimitPixel - top) / (bottom - top);
+                offset = Math.max(0, Math.min(1, offset)); 
+                
+                gradient.addColorStop(0, 'rgba(239, 68, 68, 0.25)'); 
+                gradient.addColorStop(offset, 'rgba(239, 68, 68, 0.25)');
+                gradient.addColorStop(offset, 'rgba(59, 130, 246, 0.1)'); 
+                gradient.addColorStop(1, 'rgba(59, 130, 246, 0.1)');
+                
+                return gradient;
+            },
+            borderWidth: 3,
+            pointBackgroundColor: context => context.raw > finalControlLimit ? '#ef4444' : '#3b82f6',
+            pointBorderColor: '#ffffff', 
+            pointBorderWidth: 1.5,
+            pointRadius: 5,
+            pointHoverRadius: 7,
+            fill: true,
+            tension: 0.3,
+            spanGaps: true 
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false }, 
+          tooltip: {
+            backgroundColor: 'rgba(255, 255, 255, 0.95)',
+            titleColor: '#1e293b',
+            bodyColor: '#475569',
+            borderColor: '#e2e8f0',
+            borderWidth: 1,
+            padding: 12,
+            boxPadding: 6,
+            usePointStyle: true,
+            callbacks: {
+              label: function(context) {
+                let label = context.dataset.label || '';
+                if (label) label += ': ';
+                if (context.parsed.y !== null) {
+                  label += context.parsed.y.toFixed(2);
+                  if (context.datasetIndex === 1 && context.parsed.y > finalControlLimit) {
+                     label += ' (out)';
+                  } else if (context.datasetIndex === 1) {
+                     label += ' (in)';
+                  }
+                }
+                return label;
+              }
+            }
+          }
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            max: yMaxLimit, 
+            grid: { color: 'rgba(226, 232, 240, 0.6)', borderDash: [4, 4] },
+            ticks: { font: { family: 'Prompt' }, color: '#64748b' }
+          },
+          x: {
+            grid: { display: false },
+            ticks: { font: { family: 'Prompt' }, color: '#64748b' }
+          }
+        },
+        interaction: { intersect: false, mode: 'index' }
+      }
+    });
+  }
+
+  function renderPrecisionGraph() {
+    const selectedTest = document.getElementById('graphTestSelectPrecision').value;
+    const selectedYear = parseInt(document.getElementById('filterYearPrecision').value);
+
+    if (!selectedTest) {
+      document.getElementById('precisionChartCanvas').classList.add('hidden');
+      document.getElementById('precisionChartEmpty').classList.remove('hidden');
+      document.getElementById('precisionGraphLegend').classList.add('hidden');
+      return;
+    }
+
+    document.getElementById('precisionChartCanvas').classList.remove('hidden');
+    document.getElementById('precisionChartEmpty').classList.add('hidden');
+    document.getElementById('precisionGraphLegend').classList.remove('hidden');
+
+    const testInfo = state.monitoringData.tests.find(t => t.test === selectedTest) || {};
+    const allRecordsForTest = state.monitoringData.records.filter(r => r.test === selectedTest);
+    
+    let latestTarget = 0;
+    if (allRecordsForTest.length > 0) {
+      const sortedRecords = [...allRecordsForTest].sort((a, b) => b.timestamp - a.timestamp);
+      const latestRecord = sortedRecords.find(r => r.target !== null && r.target !== '');
+      if (latestRecord) latestTarget = parseFloat(latestRecord.target);
+    }
+
+    const finalTEa = parseTEa(testInfo.tea, latestTarget);
+    const finalControlLimit = parseControlLimit(testInfo.controlLimit, finalTEa);
+
+    const testIqcRecords = (state.monitoringData.iqcRecords || []).filter(r => r.test === selectedTest && parseInt(r.year) === selectedYear);
+    
+    const labels = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+    const controlLimitData = new Array(12).fill(finalControlLimit);
+    
+    let datasets = [
+      {
+        label: 'เกณฑ์ควบคุม (Control Limit)',
+        data: controlLimitData,
+        borderColor: '#ef4444', 
+        borderWidth: 2,
+        borderDash: [5, 5],
+        pointRadius: 0,
+        fill: false,
+        tension: 0
+      }
+    ];
+
+    const lvl = state.currentPreLevelFilter;
+    let allMaxCV = 0;
+
+    const monthlyCV = new Array(12).fill(null);
+    testIqcRecords.forEach(r => {
+       const mIdx = parseInt(r.month) - 1; 
+       let cvRaw = r[`cv${lvl}`];
+       if (mIdx >= 0 && mIdx <= 11 && cvRaw !== null && cvRaw !== '' && !isNaN(parseFloat(cvRaw))) {
+          const cvVal = parseFloat(cvRaw);
+          monthlyCV[mIdx] = cvVal;
+          if (cvVal > allMaxCV) allMaxCV = cvVal;
+       }
+    });
+    
+    let dynamicLineColor = '#6366f1'; 
+    if (lvl === 1) dynamicLineColor = '#3b82f6';
+    else if (lvl === 2) dynamicLineColor = '#10b981';
+    else if (lvl === 3) dynamicLineColor = '#a855f7';
+
+    datasets.push({
+       label: `Level ${lvl} %CV`,
+       data: monthlyCV,
+       segment: {
+         borderColor: context => (context.p0.parsed.y > finalControlLimit || context.p1.parsed.y > finalControlLimit) ? '#ef4444' : dynamicLineColor,
+       },
+       backgroundColor: function(context) {
+           const chart = context.chart;
+           const {ctx: canvasCtx, chartArea, scales} = chart;
+           if (!chartArea) return 'rgba(99, 102, 241, 0.1)'; 
+           
+           const yLimitPixel = scales.y.getPixelForValue(finalControlLimit);
+           const top = chartArea.top;
+           const bottom = chartArea.bottom;
+           
+           let gradient = canvasCtx.createLinearGradient(0, top, 0, bottom);
+           let offset = (yLimitPixel - top) / (bottom - top);
+           offset = Math.max(0, Math.min(1, offset)); 
+           
+           let rgbBaseColor = '99, 102, 241';
+           if (lvl === 1) rgbBaseColor = '59, 130, 246';
+           else if (lvl === 2) rgbBaseColor = '16, 185, 129';
+           else if (lvl === 3) rgbBaseColor = '168, 85, 247';
+
+           gradient.addColorStop(0, 'rgba(239, 68, 68, 0.25)'); 
+           gradient.addColorStop(offset, 'rgba(239, 68, 68, 0.25)');
+           gradient.addColorStop(offset, `rgba(${rgbBaseColor}, 0.1)`); 
+           gradient.addColorStop(1, `rgba(${rgbBaseColor}, 0.1)`);
+           
+           return gradient;
+       },
+       borderWidth: 3,
+       pointBackgroundColor: context => context.raw > finalControlLimit ? '#ef4444' : dynamicLineColor,
+       pointBorderColor: '#ffffff',
+       pointRadius: 5,
+       pointHoverRadius: 7,
+       fill: true,
+       tension: 0.3,
+       spanGaps: true
+    });
+    
+    document.getElementById('precisionGraphLegend').innerHTML = `
+        <div class="flex items-center gap-2">
+          <svg width="24" height="6" xmlns="http://www.w3.org/2000/svg"><line x1="0" y1="3" x2="24" y2="3" stroke="#ef4444" stroke-width="2" stroke-dasharray="5,5"/></svg> เกณฑ์ควบคุม
+        </div>
+        <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full inline-block" style="background-color: ${dynamicLineColor};"></span> Level ${lvl} %CV (ในเกณฑ์)</div>
+        <div class="flex items-center gap-2"><span class="w-3 h-3 bg-red-500 rounded-full inline-block"></span> Level ${lvl} %CV (ออกนอกเกณฑ์)</div>
+    `;
+
+    let yMaxLimit = undefined; 
+    if (allMaxCV > finalControlLimit * 2.5) {
+        yMaxLimit = finalControlLimit * 2.5;
+    }
+
+    if (state.precisionChart) {
+      state.precisionChart.destroy();
+      state.precisionChart = null;
+    }
+
+    recreateCanvas('precisionChartCanvas');
+    const ctx = document.getElementById('precisionChartCanvas').getContext('2d');
+
+    state.precisionChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: datasets
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false }, 
+          tooltip: {
+            backgroundColor: 'rgba(255, 255, 255, 0.95)',
+            titleColor: '#1e293b',
+            bodyColor: '#475569',
+            borderColor: '#e2e8f0',
+            borderWidth: 1,
+            padding: 12,
+            boxPadding: 6,
+            usePointStyle: true,
+            callbacks: {
+              label: function(context) {
+                let label = context.dataset.label || '';
+                if (label) label += ': ';
+                if (context.parsed.y !== null) {
+                  label += context.parsed.y.toFixed(2);
+                  if (context.datasetIndex > 0 && context.parsed.y > finalControlLimit) {
+                     label += ' (ออกนอกเกณฑ์)';
+                  }
+                }
+                return label;
+              }
+            }
+          }
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            max: yMaxLimit, 
+            grid: { color: 'rgba(226, 232, 240, 0.6)', borderDash: [4, 4] },
+            ticks: { font: { family: 'Prompt' }, color: '#64748b' }
+          },
+          x: {
+            grid: { display: false },
+            ticks: { font: { family: 'Prompt' }, color: '#64748b' }
+          }
+        },
+        interaction: { intersect: false, mode: 'index' }
+      }
+    });
+  }
+
+  function toggleViewMode(viewId, mode) {
+    if(!checkDeptSelected()) return;
+
+    if (viewId === 'accuracy') {
+      const btnTable = document.getElementById('btnTableAcc');
+      const btnGraph = document.getElementById('btnGraphAcc');
+      const tableMode = document.getElementById('accuracyTableMode');
+      const graphMode = document.getElementById('accuracyGraphMode');
+      
+      if (mode === 'table') {
+        btnTable.classList.replace('text-slate-500', 'text-white');
+        btnTable.classList.replace('hover:bg-slate-50', 'bg-brand-500');
+        btnTable.classList.remove('hover:text-brand-600');
+        
+        btnGraph.classList.replace('text-white', 'text-slate-500');
+        btnGraph.classList.replace('bg-brand-500', 'hover:bg-slate-50');
+        btnGraph.classList.add('hover:text-brand-600');
+        
+        tableMode.classList.remove('hidden');
+        graphMode.classList.add('hidden');
+        graphMode.classList.remove('flex');
+      } else {
+        btnGraph.classList.replace('text-slate-500', 'text-white');
+        btnGraph.classList.replace('hover:bg-slate-50', 'bg-brand-500');
+        btnGraph.classList.remove('hover:text-brand-600');
+        
+        btnTable.classList.replace('text-white', 'text-slate-500');
+        btnTable.classList.replace('bg-brand-500', 'hover:bg-slate-50');
+        btnTable.classList.add('hover:text-brand-600');
+        
+        tableMode.classList.add('hidden');
+        graphMode.classList.remove('hidden');
+        graphMode.classList.add('flex');
+        
+        const selectGraph = document.getElementById('graphTestSelectAccuracy');
+        if (selectGraph.options.length <= 1 && state.monitoringData && state.monitoringData.tests) {
+          const uniqueTests = [...new Set(state.monitoringData.tests.map(t => t.test))];
+          uniqueTests.forEach(test => {
+            selectGraph.insertAdjacentHTML('beforeend', `<option value="${test}">${test}</option>`);
+          });
+        }
+        setTimeout(renderAccuracyGraph, 100); 
+      }
+    } else if (viewId === 'precision') {
+      const btnTable = document.getElementById('btnTablePre');
+      const btnGraph = document.getElementById('btnGraphPre');
+      const tableMode = document.getElementById('precisionTableMode');
+      const graphMode = document.getElementById('precisionGraphMode');
+
+      if (mode === 'table') {
+        btnTable.classList.replace('text-slate-500', 'text-white');
+        btnTable.classList.replace('hover:bg-slate-50', 'bg-indigo-500');
+        btnTable.classList.remove('hover:text-indigo-600');
+
+        btnGraph.classList.replace('text-white', 'text-slate-500');
+        btnGraph.classList.replace('bg-indigo-500', 'hover:bg-slate-50');
+        btnGraph.classList.add('hover:text-indigo-600');
+
+        tableMode.classList.remove('hidden');
+        graphMode.classList.add('hidden');
+        graphMode.classList.remove('flex');
+      } else {
+        btnGraph.classList.replace('text-slate-500', 'text-white');
+        btnGraph.classList.replace('hover:bg-slate-50', 'bg-indigo-500');
+        btnGraph.classList.remove('hover:text-indigo-600');
+
+        btnTable.classList.replace('text-white', 'text-slate-500');
+        btnTable.classList.replace('bg-indigo-500', 'hover:bg-slate-50');
+        btnTable.classList.add('hover:text-indigo-600');
+
+        tableMode.classList.add('hidden');
+        graphMode.classList.remove('hidden');
+        graphMode.classList.add('flex');
+
+        const selectGraph = document.getElementById('graphTestSelectPrecision');
+        if (selectGraph.options.length <= 1 && state.monitoringData && state.monitoringData.tests) {
+          const uniqueTests = [...new Set(state.monitoringData.tests.map(t => t.test))];
+          uniqueTests.forEach(test => {
+            selectGraph.insertAdjacentHTML('beforeend', `<option value="${test}">${test}</option>`);
+          });
+        }
+        setTimeout(renderPrecisionGraph, 100); 
+      }
+    }
+  }
+
+  // ==========================================
+  // 10. Dashboard Stats Engine & Real-time Aggregation
+  // ==========================================
+  function loadDashboardStats() {
+    if (!checkDeptSelected()) return;
+
+    Swal.fire({
+      title: 'กำลังเชื่อมโยงข้อมูลระบบ...',
+      allowOutsideClick: false,
+      didOpen: () => Swal.showLoading(),
+      customClass: { popup: 'rounded-3xl', icon: 'custom-swal-icon' }
+    });
+
+    google.script.run
+      .withSuccessHandler(res => {
+        if (res.success) {
+          state.dashboardStats = res;
+          
+          google.script.run
+            .withSuccessHandler(monRes => {
+              Swal.close();
+              if (monRes.success) {
+                state.monitoringData = monRes;
+                buildDashboardUI();
+              } else {
+                buildDashboardUI(); 
+              }
+            })
+            .withFailureHandler(() => { Swal.close(); buildDashboardUI(); })
+            .getMonitoringData(state.currentDeptName);
+        } else {
+          Swal.close();
+          showError('ดึงข้อมูลแดชบอร์ดล้มเหลว', res.message);
+        }
+      })
+      .withFailureHandler(err => {
+        Swal.close();
+        showError('ข้อผิดพลาดเครือข่าย', err.message);
+      })
+      .getDashboardData(state.currentDeptName);
+  }
+
+  function buildDashboardUI() {
+    if (!state.dashboardStats) return;
+
+    const eqaRecords = state.dashboardStats.eqaSummary || [];
+    const iqcRecords = state.dashboardStats.iqcSummary || [];
+
+    // หาปีวิเคราะห์ที่ไม่ซ้ำทั้งหมดเพื่อใส่ใน Dropdown ตัวคัดเลือก
+    const yearsSet = new Set();
+    eqaRecords.forEach(r => { if(r.recordYear) yearsSet.add(normalizeYear(r.recordYear)); });
+    iqcRecords.forEach(r => { if(r.year) yearsSet.add(normalizeYear(r.year)); });
+    
+    const uniqueYears = Array.from(yearsSet).sort((a,b) => b - a);
+    const yrSelect = document.getElementById('dashboardYearSelect');
+    
+    const previousSelected = yrSelect.value;
+    yrSelect.innerHTML = '<option value="ALL">ทุกปี</option>';
+    uniqueYears.forEach(y => {
+      yrSelect.insertAdjacentHTML('beforeend', `<option value="${y}">${y}</option>`);
+    });
+    
+    if (uniqueYears.includes(previousSelected) || previousSelected === 'ALL') {
+      yrSelect.value = previousSelected;
+    }
+    const selectedYear = yrSelect.value;
+
+    // เติมฟิลเตอร์ตัวกรอง EQA ชนิดใหม่ (ข้อ 3.1)
+    const eqaFilterSelect = document.getElementById('dashboardEqaFilterSelect');
+    const eqaNamesSet = new Set();
+    eqaRecords.forEach(r => { if (r.eqaName) eqaNamesSet.add(r.eqaName); });
+    const prevEqaSelected = eqaFilterSelect.value;
+    eqaFilterSelect.innerHTML = '<option value="ALL">ทุกรายการ</option>';
+    Array.from(eqaNamesSet).sort().forEach(name => {
+      eqaFilterSelect.insertAdjacentHTML('beforeend', `<option value="${name}">${name}</option>`);
+    });
+    if (eqaNamesSet.has(prevEqaSelected) || prevEqaSelected === 'ALL') {
+      eqaFilterSelect.value = prevEqaSelected;
+    }
+    const selectedEqa = eqaFilterSelect.value;
+
+    // เติมฟิลเตอร์ตัวกรอง IQC ชนิดใหม่ (ข้อ 3.1)
+    const iqcFilterSelect = document.getElementById('dashboardIqcFilterSelect');
+    const iqcNamesSet = new Set();
+    iqcRecords.forEach(r => { if (r.iqcName) iqcNamesSet.add(r.iqcName); });
+    const prevIqcSelected = iqcFilterSelect.value;
+    iqcFilterSelect.innerHTML = '<option value="ALL">ทุกรายการ</option>';
+    Array.from(iqcNamesSet).sort().forEach(name => {
+      iqcFilterSelect.insertAdjacentHTML('beforeend', `<option value="${name}">${name}</option>`);
+    });
+    if (iqcNamesSet.has(prevIqcSelected) || prevIqcSelected === 'ALL') {
+      iqcFilterSelect.value = prevIqcSelected;
+    }
+    const selectedIqc = iqcFilterSelect.value;
+
+    // จัดทำการกรอง Cascade (คัดกรอง EQA อิงจาก calendar recordYear ป้องกัน Bug ข้อ 1.1)
+    let filteredEqa = eqaRecords;
+    if (selectedYear !== 'ALL') {
+      filteredEqa = filteredEqa.filter(r => normalizeYear(r.recordYear) === selectedYear);
+    }
+    if (selectedEqa !== 'ALL') {
+      filteredEqa = filteredEqa.filter(r => r.eqaName === selectedEqa);
+    }
+
+    let filteredIqc = iqcRecords;
+    if (selectedYear !== 'ALL') {
+      filteredIqc = filteredIqc.filter(r => normalizeYear(r.year) === selectedYear);
+    }
+    if (selectedIqc !== 'ALL') {
+      filteredIqc = filteredIqc.filter(r => r.iqcName === selectedIqc);
+    }
+
+    // 1. คำนวณอัตราความคงเสถียร IQC และแสดงผลแบบร้อยละของ %CV ในเกณฑ์ (ข้อ 3.2.2)
+    let iqcCvCompliantPercent = 0;
+    let totalCvChecked = 0;
+    let compliantCvCount = 0;
+
+    if (filteredIqc.length > 0 && state.monitoringData && state.monitoringData.tests) {
+      filteredIqc.forEach(iqcItem => {
+        const testMeta = state.monitoringData.tests.find(t => t.test === iqcItem.test);
+        if (testMeta) {
+          let latestTarget = 0;
+          const allRecordsForTest = state.monitoringData.records.filter(r => r.test === iqcItem.test);
+          if (allRecordsForTest.length > 0) {
+            const sortedRecords = [...allRecordsForTest].sort((a, b) => b.timestamp - a.timestamp);
+            const latestRecord = sortedRecords.find(r => r.target !== null && r.target !== '');
+            if (latestRecord) latestTarget = parseFloat(latestRecord.target);
+          }
+          const finalTEa = parseTEa(testMeta.tea, latestTarget);
+          const finalControlLimit = parseControlLimit(testMeta.controlLimit, finalTEa);
+
+          [iqcItem.cv1, iqcItem.cv2, iqcItem.cv3].forEach(cv => {
+            if (cv !== null && cv !== '' && !isNaN(parseFloat(cv))) {
+              totalCvChecked++;
+              if (parseFloat(cv) <= finalControlLimit) {
+                compliantCvCount++;
+              }
+            }
+          });
+        }
+      });
+      iqcCvCompliantPercent = totalCvChecked > 0 ? (compliantCvCount / totalCvChecked) * 100 : 0;
+    }
+    document.getElementById('statIqcPrecision').textContent = `${iqcCvCompliantPercent.toFixed(1)}%`;
+    document.getElementById('barIqcPrecision').style.width = `${iqcCvCompliantPercent}%`;
+    document.getElementById('statIqcPrecisionDetail').textContent = `${compliantCvCount}/${totalCvChecked}`;
+
+    // 2. คำนวณอัตรา EQA แบบบูรณาการใหม่ (Progress bar 3 เส้นตามข้อ 1.3.1)
+    let avgParticipation = 0;
+    if (filteredEqa.length > 0) {
+      const sumPart = filteredEqa.reduce((acc, r) => acc + (r.participationPercent || 0), 0);
+      avgParticipation = sumPart / filteredEqa.length;
+    }
+    let avgPassRate = 0;
+    if (filteredEqa.length > 0) {
+      const sumPass = filteredEqa.reduce((acc, r) => acc + (r.percentAcceptable || 0), 0);
+      avgPassRate = sumPass / filteredEqa.length;
+    }
+
+    // ประมวลผล %Bias เข้าเกณฑ์ควบคุมเพื่อเป็นตัวเลขหลักของการ์ด EQA (ข้อ 1.3.1)
+    let totalBiasChecked = 0;
+    let compliantBiasCount = 0;
+    if (state.monitoringData && state.monitoringData.records) {
+      // คัดกรองเวชสารตามปฏิทินที่รายงานผลจริง ( recordYear )
+      const yearFilteredRecords = selectedYear === 'ALL' 
+        ? state.monitoringData.records 
+        : state.monitoringData.records.filter(r => new Date(r.timestamp).getFullYear() === parseInt(selectedYear));
+        
+      let recordsToCalc = yearFilteredRecords;
+      if (selectedEqa !== 'ALL') {
+        const eqaTests = state.monitoringData.tests.filter(t => t.eqaShortName === selectedEqa).map(t => t.test);
+        recordsToCalc = yearFilteredRecords.filter(r => eqaTests.includes(r.test));
+      }
+      
+      recordsToCalc.forEach(r => {
+        if (r.bias !== null && r.bias !== '') {
+          const testMeta = state.monitoringData.tests.find(t => t.test === r.test);
+          if (testMeta) {
+            const finalTEa = parseTEa(testMeta.tea, parseFloat(r.target));
+            const finalControlLimit = parseControlLimit(testMeta.controlLimit, finalTEa);
+            totalBiasChecked++;
+            if (Math.abs(parseFloat(r.bias)) <= finalControlLimit) {
+              compliantBiasCount++;
+            }
+          }
+        }
+      });
+    }
+    const biasCompliancePercent = totalBiasChecked > 0 ? (compliantBiasCount / totalBiasChecked) * 100 : 0;
+
+    // การแสดงผลบนการ์ด EQA (ข้อ 1.3.1): ตัวเลขหลักดำเด่น และเศษส่วน
+    document.getElementById('statEqaPassRate').textContent = `${biasCompliancePercent.toFixed(1)}%`;
+    document.getElementById('statEqaPassDetail').textContent = `${compliantBiasCount}/${totalBiasChecked}`;
+
+    // ผูก Progress bar ทั้ง 3 ค่า
+    document.getElementById('labelEqaParticipation').textContent = `${avgParticipation.toFixed(1)}%`;
+    document.getElementById('barEqaParticipation').style.width = `${avgParticipation}%`;
+    
+    document.getElementById('labelEqaPassRate').textContent = `${avgPassRate.toFixed(1)}%`;
+    document.getElementById('barEqaPassRate').style.width = `${avgPassRate}%`;
+    
+    document.getElementById('labelEqaBiasLimit').textContent = `${biasCompliancePercent.toFixed(1)}%`;
+    document.getElementById('barEqaBiasLimit').style.width = `${biasCompliancePercent}%`;
+
+    // 3. คำนวณข้อมูลรายการทดสอบ IQC/EQA ความครอบคลุม (MetaData)
+    let totalMetaTests = 0;
+    let testsWithIqc = 0;
+    let testsWithEqa = 0;
+
+    if (state.dashboardStats && state.dashboardStats.metadata) {
+      const metaList = state.dashboardStats.metadata;
+      totalMetaTests = metaList.length;
+      metaList.forEach(m => {
+        if (m.iqcCheck === 'มี') testsWithIqc++;
+        if (m.eqaCheck === 'มี') testsWithEqa++;
+      });
+    }
+
+    const pctWithIqc = totalMetaTests > 0 ? (testsWithIqc / totalMetaTests) * 100 : 0;
+    const pctWithEqa = totalMetaTests > 0 ? (testsWithEqa / totalMetaTests) * 100 : 0;
+
+    document.getElementById('statTotalTests').textContent = `${totalMetaTests} รายการ`;
+    document.getElementById('statTestIqcCheck').innerHTML = `<b>${testsWithIqc}/${totalMetaTests} (${pctWithIqc.toFixed(1)}%)</b>`;
+    document.getElementById('statTestEqaCheck').innerHTML = `<b>${testsWithEqa}/${totalMetaTests} (${pctWithEqa.toFixed(1)}%)</b>`;
+
+    // วาดกราฟเชิงรับวิเคราะห์ (ผูก logic แยกรอบรายปีปฏิทินที่รายงานผลจริง ป้องกัน Bug ข้อ 1.1)
+    renderDashboardChart(selectedYear, filteredEqa, filteredIqc);
+  }
+
+  function setChartMode(mode) {
+    state.chartDisplayMode = mode;
+    
+    const btnIqc = document.getElementById('btnChartModeIqc');
+    const btnEqa = document.getElementById('btnChartModeEqa');
+    const btnAll = document.getElementById('btnChartModeAll');
+    
+    [btnIqc, btnEqa, btnAll].forEach(btn => {
+      if (btn) {
+        btn.className = 'px-3.5 py-1.5 rounded-lg text-xs font-semibold text-slate-500 hover:text-slate-700 transition-all';
+      }
+    });
+    
+    let activeBtn;
+    if (mode === 'IQC') activeBtn = btnIqc;
+    else if (mode === 'EQA') activeBtn = btnEqa;
+    else activeBtn = btnAll;
+    
+    if (activeBtn) {
+      activeBtn.className = 'px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-white text-slate-800 shadow-sm transition-all border border-slate-200';
+    }
+    
+    buildDashboardUI();
+  }
+
+  function renderDashboardChart(yearMode, filteredEqa, filteredIqc) {
+    const chartCanvas = document.getElementById('dashboardChartCanvas');
+    const chartEmpty = document.getElementById('dashboardChartEmpty');
+
+    if (state.dashboardChart) {
+      state.dashboardChart.destroy();
+      state.dashboardChart = null;
+    }
+
+    if (filteredEqa.length === 0 && filteredIqc.length === 0) {
+      chartCanvas.classList.add('hidden');
+      chartEmpty.classList.remove('hidden');
+      return;
+    }
+
+    chartCanvas.classList.remove('hidden');
+    chartEmpty.classList.add('hidden');
+
+    recreateCanvas('dashboardChartCanvas');
+    const ctx = document.getElementById('dashboardChartCanvas').getContext('2d');
+
+    let labels = [];
+    let eqaPassData = [];
+    let iqcComplianceData = [];
+
+    if (yearMode === 'ALL') {
+      const yearsSet = new Set();
+      filteredEqa.forEach(r => { if(r.recordYear) yearsSet.add(r.recordYear); });
+      filteredIqc.forEach(r => { if(r.year) yearsSet.add(r.year); });
+      labels = Array.from(yearsSet).sort((a, b) => parseInt(a) - parseInt(b));
+
+      labels.forEach(yr => {
+        const yearEqas = filteredEqa.filter(r => normalizeYear(r.recordYear) === normalizeYear(yr));
+        const yearEqasSum = yearEqas.reduce((acc, r) => acc + (r.percentAcceptable || 0), 0);
+        eqaPassData.push(yearEqas.length > 0 ? Math.round(yearEqasSum / yearEqas.length) : null);
+
+        const yearIqcs = filteredIqc.filter(r => normalizeYear(r.year) === normalizeYear(yr));
+        let compliantCv = 0;
+        let totalCv = 0;
+        
+        if (state.monitoringData && state.monitoringData.tests) {
+          yearIqcs.forEach(iqcItem => {
+            const testMeta = state.monitoringData.tests.find(t => t.test === iqcItem.test);
+            if (testMeta) {
+              let latestTarget = 0;
+              const allRecordsForTest = state.monitoringData.records.filter(r => r.test === iqcItem.test);
+              if (allRecordsForTest.length > 0) {
+                const sortedRecords = [...allRecordsForTest].sort((a, b) => b.timestamp - a.timestamp);
+                const latestRecord = sortedRecords.find(r => r.target !== null && r.target !== '');
+                if (latestRecord) latestTarget = parseFloat(latestRecord.target);
+              }
+              const finalTEa = parseTEa(testMeta.tea, latestTarget);
+              const finalControlLimit = parseControlLimit(testMeta.controlLimit, finalTEa);
+
+              [iqcItem.cv1, iqcItem.cv2, iqcItem.cv3].forEach(cv => {
+                if (cv !== null && cv !== '' && !isNaN(parseFloat(cv))) {
+                  totalCv++;
+                  if (parseFloat(cv) <= finalControlLimit) compliantCv++;
+                }
+              });
+            }
+          });
+        }
+        iqcComplianceData.push(totalCv > 0 ? Math.round((compliantCv / totalCv) * 100) : null);
+      });
+
+    } else {
+      labels = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+      
+      for (let m = 1; m <= 12; m++) {
+        const monthEqas = filteredEqa.filter(r => parseInt(r.recordMonth) === m);
+        const monthEqaSum = monthEqas.reduce((acc, r) => acc + (r.percentAcceptable || 0), 0);
+        eqaPassData.push(monthEqas.length > 0 ? Math.round(monthEqaSum / monthEqas.length) : null);
+
+        const monthIqcs = filteredIqc.filter(r => parseInt(r.month) === m);
+        let compliantCv = 0;
+        let totalCv = 0;
+        
+        if (state.monitoringData && state.monitoringData.tests) {
+          monthIqcs.forEach(iqcItem => {
+            const testMeta = state.monitoringData.tests.find(t => t.test === iqcItem.test);
+            if (testMeta) {
+              let latestTarget = 0;
+              const allRecordsForTest = state.monitoringData.records.filter(r => r.test === iqcItem.test);
+              if (allRecordsForTest.length > 0) {
+                const sortedRecords = [...allRecordsForTest].sort((a, b) => b.timestamp - a.timestamp);
+                const latestRecord = sortedRecords.find(r => r.target !== null && r.target !== '');
+                if (latestRecord) latestTarget = parseFloat(latestRecord.target);
+              }
+              const finalTEa = parseTEa(testMeta.tea, latestTarget);
+              const finalControlLimit = parseControlLimit(testMeta.controlLimit, finalTEa);
+
+              [iqcItem.cv1, iqcItem.cv2, iqcItem.cv3].forEach(cv => {
+                if (cv !== null && cv !== '' && !isNaN(parseFloat(cv))) {
+                  totalCv++;
+                  if (parseFloat(cv) <= finalControlLimit) compliantCv++;
+                }
+              });
+            }
+          });
+        }
+        iqcComplianceData.push(totalCv > 0 ? Math.round((compliantCv / totalCv) * 100) : null);
+      }
+    }
+
+    const iqcDataset = {
+      type: 'line',
+      label: 'ร้อยละของ %CV ที่เข้าเกณฑ์ควบคุม',
+      data: iqcComplianceData,
+      borderColor: '#6366f1',
+      backgroundColor: 'rgba(99, 102, 241, 0.15)',
+      borderWidth: 3,
+      fill: true,
+      tension: 0.35,
+      pointBackgroundColor: '#6366f1',
+      pointRadius: 4,
+      spanGaps: true
+    };
+
+    const eqaDataset = {
+      type: 'bar',
+      label: 'ร้อยละของ EQA ที่ผ่านเกณฑ์',
+      data: eqaPassData,
+      backgroundColor: 'rgba(20, 184, 166, 0.4)',
+      hoverBackgroundColor: 'rgba(20, 184, 166, 0.7)',
+      borderColor: '#14b8a6',
+      borderWidth: 1.5,
+      borderRadius: 8,
+      barThickness: 32
+    };
+
+    let datasetsToShow = [];
+    if (state.chartDisplayMode === 'IQC') {
+      datasetsToShow = [iqcDataset];
+    } else if (state.chartDisplayMode === 'EQA') {
+      datasetsToShow = [eqaDataset];
+    } else {
+      datasetsToShow = [iqcDataset, eqaDataset];
+    }
+
+    state.dashboardChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: datasetsToShow
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            display: true,
+            position: 'top',
+            labels: { font: { family: 'Prompt', size: 11 }, color: '#475569' }
+          },
+          tooltip: {
+            backgroundColor: 'rgba(255, 255, 255, 0.95)',
+            titleColor: '#1e293b',
+            bodyColor: '#475569',
+            borderColor: '#e2e8f0',
+            borderWidth: 1,
+            padding: 10,
+            usePointStyle: true,
+            callbacks: {
+              label: (context) => `${context.dataset.label}: ${context.parsed.y}%`
+            }
+          }
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            max: 100,
+            grid: { color: 'rgba(226, 232, 240, 0.5)', borderDash: [4, 4] },
+            ticks: { font: { family: 'Prompt' }, color: '#64748b' }
+          },
+          x: {
+            grid: { display: false },
+            ticks: { font: { family: 'Prompt' }, color: '#64748b' }
+          }
+        }
+      }
+    });
+  }
+
+  // ==========================================
+  // 11. Modal: รายงานตารางสรุปรายการตรวจวิเคราะห์ (ข้อ 1.4.1)
+  // ==========================================
+  function openTestItemsModal() {
+    const modal = document.getElementById('testItemsModal');
+    if (!modal) return;
+    
+    const tbody = document.getElementById('testItemsModalTableBody');
+    tbody.innerHTML = '';
+    
+    if (!state.dashboardStats || !state.dashboardStats.metadata || state.dashboardStats.metadata.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="4" class="py-8 text-center text-slate-400">ไม่พบรายการวิเคราะห์ทดสอบในแผนกนี้</td></tr>`;
+      modal.classList.remove('hidden');
+      return;
+    }
+    
+    state.dashboardStats.metadata.forEach((item, index) => {
+      const hasIqc = item.iqcCheck === 'มี' && item.iqcName !== '';
+      const hasEqa = item.eqaCheck === 'มี' && item.eqaName !== '';
+      
+      const iqcDisplay = hasIqc 
+        ? `<div class="font-bold text-slate-800">${item.iqcName}</div><div class="text-[10px] text-slate-400 font-medium">${item.iqcCompany || '-'}</div>` 
+        : `<span class="px-2.5 py-1 rounded-lg bg-red-50 text-red-500 font-bold border border-red-100 text-xs inline-block shadow-sm">ไม่มี</span>`;
+        
+      const eqaDisplay = hasEqa 
+        ? `<div class="font-bold text-slate-800">${item.eqaName}</div><div class="text-[10px] text-slate-400 font-medium">${item.eqaCompany || '-'}</div>` 
+        : `<span class="px-2.5 py-1 rounded-lg bg-red-50 text-red-500 font-bold border border-red-100 text-xs inline-block shadow-sm">ไม่มี</span>`;
+      
+      const tr = document.createElement('tr');
+      tr.className = 'hover:bg-slate-50/80 transition-colors';
+      tr.innerHTML = `
+        <td class="py-3.5 px-4 text-center text-slate-400 font-mono align-middle">${index + 1}</td>
+        <td class="py-3.5 px-4 font-bold text-slate-700 align-middle">
+          ${item.test} 
+          <span class="text-[10px] font-normal text-slate-400 block mt-0.5"><i class="fa-solid fa-microchip"></i> ${item.machine}</span>
+        </td>
+        <td class="py-3.5 px-4 align-middle">${iqcDisplay}</td>
+        <td class="py-3.5 px-4 align-middle">${eqaDisplay}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+    
+    modal.classList.remove('hidden');
+  }
+
+  function closeTestItemsModal() {
+    const modal = document.getElementById('testItemsModal');
+    if (modal) modal.classList.add('hidden');
+  }
+
+  // ==========================================
+  // 12. Global System Utilities
+  // ==========================================
+  function showError(title, message) {
+    Swal.fire({
+      icon: 'error',
+      title: title,
+      text: message,
+      confirmButtonColor: '#ef4444',
+      customClass: { popup: 'rounded-3xl', icon: 'custom-swal-icon' }
+    });
+  }
+
+</script>
