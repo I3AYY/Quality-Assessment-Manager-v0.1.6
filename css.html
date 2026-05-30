@@ -1,0 +1,345 @@
+<style>
+  /**
+   * Quality Assessment Manager - AI Core v0.1.6
+   * Frontend Stylesheet (CSS) - Optimized Best Practices Edition
+   * พัฒนาอย่างประณีตสำหรับงานห้องปฏิบัติการทางการแพทย์ (Medical Laboratory)
+   * ออกแบบ UI/UX สไตล์ Premium Pastel Glassmorphism รองรับหน้า Dashboard ผู้ตรวจประเมิน
+   */
+
+  /* -------------------------------------------
+     1. Custom Scrollbar & Fonts (สไตล์หรูหราโทนพาสเทล)
+  ------------------------------------------- */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: rgba(20, 184, 166, 0.3); /* brand-500 แบบโปร่งใส */
+    border-radius: 10px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+    transition: background-color 0.2s ease;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(20, 184, 166, 0.6);
+  }
+
+  /* แถบเลื่อนแนวตั้งและแนวนอนเฉพาะส่วนตาราง (Table Scrollbar) */
+  .custom-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 rgba(241, 245, 249, 0.5);
+  }
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: rgba(241, 245, 249, 0.5); /* slate-100 โทนอ่อน */
+    border-radius: 10px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background-color: #cbd5e1; /* slate-300 */
+    border-radius: 10px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background-color: #94a3b8; /* slate-400 */
+  }
+
+  /* กำหนดรูปแบบฟอนต์วิทยาศาสตร์/ตัวเลขแล็บโดยเฉพาะ (ข้อ 1.2) */
+  .font-mono {
+    font-family: 'Roboto Mono', 'Courier New', Courier, monospace !important;
+    letter-spacing: -0.025em;
+  }
+
+  /* -------------------------------------------
+     2. Form Input Numbers & Controls
+  ------------------------------------------- */
+  input[type=number]::-webkit-inner-spin-button, 
+  input[type=number]::-webkit-outer-spin-button { 
+    -webkit-appearance: none; 
+    margin: 0; 
+  }
+  input[type=number] {
+    -moz-appearance: textfield; /* สำหรับ Firefox */
+  }
+
+  /* -------------------------------------------
+     3. Animations & Beautiful Transitions
+  ------------------------------------------- */
+  
+  /* Fade In สำหรับการสลับ Views */
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .animate-fade-in {
+    animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  /* Modal Pop (Scale & Fade) */
+  @keyframes modalPop {
+    from { opacity: 0; transform: scale(0.95) translateY(10px); }
+    to { opacity: 1; transform: scale(1) translateY(0); }
+  }
+  .animate-modal-pop {
+    animation: modalPop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  }
+
+  /* แอนิเมชันสำหรับ Accordion (ประวัติ EQA รายปี) */
+  .accordion-content {
+    transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.4s ease-in-out, margin 0.4s ease-in-out;
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+    margin-top: 0;
+    margin-bottom: 0;
+  }
+  .accordion-content.expanded {
+    max-height: 3500px; /* ค่าเผื่อไว้สำหรับการขยายข้อมูลที่ซับซ้อน */
+    opacity: 1;
+    margin-top: 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+
+  /* -------------------------------------------
+     4. Loading Indicators & AI Core Effects
+  ------------------------------------------- */
+  
+  /* Dot Grid Loading Animation (สีพาสเทล 3 โทน: Teal, Blue, Purple) */
+  .dot-grid-loader {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(3, 1fr);
+    gap: 8px;
+    width: 48px;
+    height: 48px;
+  }
+
+  .dot-grid-loader div {
+    border-radius: 50%;
+    animation: dotGridPulse 1.2s ease-in-out infinite;
+  }
+
+  /* ระบายสีพาสเทลแยกตามกลุ่มเลเยอร์เพื่อมิติที่สวยงาม */
+  .dot-grid-loader div:nth-child(-n+3) { background-color: #2dd4bf; /* Teal pastel */ }
+  .dot-grid-loader div:nth-child(n+4):nth-child(-n+6) { background-color: #60a5fa; /* Blue pastel */ }
+  .dot-grid-loader div:nth-child(n+7) { background-color: #c084fc; /* Purple pastel */ }
+
+  /* สร้างเอฟเฟกต์กระเพื่อมแบบคลื่นด้วยดีเลย์เชิงลำดับ */
+  .dot-grid-loader div:nth-child(1) { animation-delay: 0s; }
+  .dot-grid-loader div:nth-child(2), .dot-grid-loader div:nth-child(4) { animation-delay: -0.2s; }
+  .dot-grid-loader div:nth-child(3), .dot-grid-loader div:nth-child(5), .dot-grid-loader div:nth-child(7) { animation-delay: -0.4s; }
+  .dot-grid-loader div:nth-child(6), .dot-grid-loader div:nth-child(8) { animation-delay: -0.6s; }
+  .dot-grid-loader div:nth-child(9) { animation-delay: -0.8s; }
+
+  @keyframes dotGridPulse {
+    0%, 100% {
+      transform: scale(1);
+      opacity: 1;
+    }
+    50% {
+      transform: scale(0.4);
+      opacity: 0.25;
+    }
+  }
+
+  /* Shimmer Effect (สำหรับ Skeleton Background ระหว่างรอโหลดกราฟ/สถิติ) */
+  @keyframes shimmer {
+    0% { background-position: -1000px 0; }
+    100% { background-position: 1000px 0; }
+  }
+  .animate-shimmer-bg {
+    animation: shimmer 2s infinite linear;
+    background: linear-gradient(to right, #f1f5f9 4%, #e2e8f0 25%, #f1f5f9 36%);
+    background-size: 1000px 100%;
+  }
+
+  /* Shine Effect (เอฟเฟกต์ประกายแสงวิ่งผ่านปุ่มบันทึกหรือกล่อง AI) */
+  @keyframes shine {
+    100% { transform: translateX(100%); }
+  }
+  .group:hover .group-hover\:animate-shimmer {
+    animation: shine 1.5s infinite cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  /* -------------------------------------------
+     5. Form Inputs & Control Tuning
+  ------------------------------------------- */
+  .form-input {
+    border: 1px solid #cbd5e1;
+    background-color: rgba(255, 255, 255, 0.85);
+    padding: 0.6rem 0.8rem;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    outline: none;
+    backdrop-filter: blur(4px);
+  }
+  .form-input:focus {
+    border-color: #14b8a6; /* สี Teal ประจำแอป */
+    box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.25);
+    background-color: #ffffff;
+    transform: translateY(-1px);
+  }
+  .form-input:disabled {
+    opacity: 0.7;
+    background-color: #f1f5f9;
+    color: #94a3b8;
+    transform: translateY(0);
+    cursor: not-allowed;
+  }
+
+  /* -------------------------------------------
+     6. Navigation, Layout & Sidebar Collapse
+  ------------------------------------------- */
+  .sidebar-collapsed {
+    width: 5rem !important;
+  }
+  .sidebar-collapsed .menu-text, 
+  .sidebar-collapsed .logo-container > div:nth-child(2),
+  .sidebar-collapsed #monitoringSubMenu,
+  .sidebar-collapsed label[for="globalDepartmentSelect"],
+  .sidebar-collapsed #globalDepartmentSelect {
+    display: none !important;
+  }
+  .sidebar-collapsed .nav-item {
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+  .sidebar-collapsed .logo-container {
+    justify-content: center;
+    width: 100%;
+  }
+
+  /* สไตล์เมนูใน Sidebar */
+  .nav-item {
+    border: 1px solid transparent; 
+    transition: all 0.2s ease-in-out;
+  }
+  .nav-item.active, .nav-item.bg-white\/60 {
+    border: 1px solid #94a3b8 !important; /* เน้นขอบให้เห็นชัดเจนตามมาตรฐาน High Contrast */
+    background-color: rgba(255, 255, 255, 0.9) !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03) !important;
+  }
+  /* ยกเว้นสำหรับ Sub-menu ใน Monitoring ให้ดูผ่อนคลายขึ้น */
+  #monitoringSubMenu .nav-item.bg-white\/60 {
+    border: 1px solid transparent !important;
+    box-shadow: none !important;
+  }
+
+  /* -------------------------------------------
+     7. Premium Glassmorphism Cards
+  ------------------------------------------- */
+  .glass-card {
+    background: rgba(255, 255, 255, 0.5);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.7) !important;
+    box-shadow: 0 10px 35px -10px rgba(15, 118, 110, 0.08) !important; /* เงาแฝงสี Teal อ่อน */
+    transition: box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .glass-card:hover {
+    box-shadow: 0 15px 40px -8px rgba(15, 118, 110, 0.12) !important;
+  }
+
+  /* -------------------------------------------
+     8. SweetAlert2 Customization (คุมโทนพาสเทลพรีเมียม)
+  ------------------------------------------- */
+  div:where(.swal2-container) div:where(.swal2-popup) {
+    border-radius: 2rem !important;
+    font-family: 'Prompt', sans-serif !important;
+    background: rgba(255, 255, 255, 0.9) !important;
+    backdrop-filter: blur(20px) !important;
+    border: 1px solid rgba(255, 255, 255, 0.8) !important;
+    box-shadow: 0 20px 60px -15px rgba(15, 118, 110, 0.15) !important;
+  }
+  div:where(.swal2-container) button:where(.swal2-styled).swal2-confirm {
+    border-radius: 0.85rem !important;
+    box-shadow: 0 4px 14px 0 rgba(20, 184, 166, 0.2) !important;
+    transition: transform 0.2s ease, box-shadow 0.2s ease !important;
+  }
+  div:where(.swal2-container) button:where(.swal2-styled).swal2-confirm:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 6px 18px 0 rgba(20, 184, 166, 0.3) !important;
+  }
+  div:where(.swal2-container) .custom-swal-icon.swal2-success [class^="swal2-success-circular-line"],
+  div:where(.swal2-container) .custom-swal-icon.swal2-success .swal2-success-fix,
+  div:where(.swal2-container) .custom-swal-icon.swal2-error [class^="swal2-x-mark"],
+  div:where(.swal2-container) .swal2-icon.custom-swal-icon {
+    background-color: transparent !important;
+  }
+
+  /* -------------------------------------------
+     9. Tables & Charts Custom Styling
+  ------------------------------------------- */
+  .overflow-x-auto, .overflow-auto {
+    position: relative;
+    border-radius: 1rem; 
+  }
+  
+  /* ตรึงหัวตารางให้อยู่กับที่ (Sticky Header) */
+  .overflow-auto table thead th,
+  .overflow-x-auto table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    background-color: rgba(248, 250, 252, 0.95);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+  }
+
+  /* ปรับแต่งความลื่นไหลของการวาดกราฟ Chart.js */
+  canvas#accuracyChartCanvas,
+  canvas#precisionChartCanvas,
+  canvas#dashboardChartCanvas {
+    max-height: 400px;
+    animation: fadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  /* ทรานซิชันสำหรับป้ายคะแนนผลประเมิน */
+  .eval-display span {
+    transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease, transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    display: inline-block;
+  }
+  .eval-display span:hover {
+    transform: scale(1.05);
+  }
+
+  /* -------------------------------------------
+     10. High Contrast Borders, Separators & Level Headers (IQC Manual)
+  ------------------------------------------- */
+  .overflow-x-auto table, .overflow-auto table {
+    border: 1px solid rgba(203, 213, 225, 0.6);
+  }
+  table thead tr {
+    border-bottom: 2px solid #cbd5e1 !important;
+  }
+  table tbody tr {
+    border-bottom: 1px solid rgba(226, 232, 240, 0.6) !important;
+  }
+
+  /* หัวตาราง IQC แยกตามเลเวลแบบพาสเทลเพื่อการจำแนกประเภทที่ดีเยี่ยม (ข้อ 5) */
+  .header-level-1 {
+    background-color: #ffe4e6 !important; /* Rose pastel */
+    color: #be123c !important;
+    border-bottom: 2px solid #fda4af !important;
+    font-weight: 700 !important;
+  }
+  .header-level-2 {
+    background-color: #e0f2fe !important; /* Sky pastel */
+    color: #0369a1 !important;
+    border-bottom: 2px solid #7dd3fc !important;
+    font-weight: 700 !important;
+  }
+  .header-level-3 {
+    background-color: #f3e8ff !important; /* Purple pastel */
+    color: #6b21a8 !important;
+    border-bottom: 2px solid #d8b4fe !important;
+    font-weight: 700 !important;
+  }
+
+</style>
